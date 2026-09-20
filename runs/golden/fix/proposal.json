@@ -1,0 +1,20 @@
+{
+  "hunks": [
+    {
+      "id": "H1",
+      "start_line": 39,
+      "end_line": 48,
+      "original_code": "  float t = dht.readTemperature();\n\n  if (t >= 60.0) {\n    Serial.println(\"[ALARM] OVERHEAT\");\n    fanOn = true;\n  } else if (t > 30.0) {\n    fanOn = true;\n  } else if (t < 30.0) {\n    fanOn = false;\n  }",
+      "new_code": "  float t = dht.readTemperature();\n\n  if (isnan(t)) {\n    Serial.println(\"[ERROR] SENSOR_FAIL\");\n    fanOn = true;\n  } else if (t >= 60.0) {\n    Serial.println(\"[ALARM] OVERHEAT\");\n    fanOn = true;\n  } else if (!fanOn && t >= 30.0) {\n    fanOn = true;\n  } else if (fanOn && t <= 28.0) {\n    fanOn = false;\n  }",
+      "explanation": "Add sensor disconnect fail-safe (isnan check), correct threshold boundary (>= 30.0), and add 2 C hysteresis (stays ON until <= 28.0).",
+      "confidence": 0.98,
+      "fixes_tests": [
+        "T04",
+        "T11",
+        "T13"
+      ],
+      "spec_ref": "R1, R2, R5"
+    }
+  ],
+  "summary": "Fix temperature threshold boundary check, add hysteresis logic for fan turn-off, and handle sensor failure (NaN) conditions with fail-safe fan operation."
+}

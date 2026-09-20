@@ -179,6 +179,8 @@ def verify_fix(
     runs_base_dir: Path | str = "runs",
     runner_fn: Optional[Callable[..., TestResult]] = None,
     builder_fn: Optional[Callable[..., tuple[bool, str, dict[str, Path]]]] = None,
+    stop_event: Any = None,
+    on_step: Optional[Callable[[str], None]] = None,
 ) -> FixAttempt:
     """Verify a proposed fix on the sandbox copy and auto-reject if build fails or regressions occur.
 
@@ -213,6 +215,8 @@ def verify_fix(
     apply_patch_to_copy(copy_dir, attempt.proposal)
 
     # 3. Build the copy
+    if on_step:
+        on_step("build")
     build_func = builder_fn if builder_fn is not None else build_firmware
     build_ok, log_tail, artifacts = build_func(copy_dir)
 
@@ -223,7 +227,16 @@ def verify_fix(
         )
         return attempt
 
+    if stop_event and getattr(stop_event, "is_set", lambda: False)():
+        attempt.status = "rejected"
+        (fix_dir / "attempt.json").write_text(
+            attempt.model_dump_json(indent=2), encoding="utf-8"
+        )
+        return attempt
+
     # 4. Re-run failed tests on copy
+    if on_step:
+        on_step("retest_failed")
     run_all(
         run_id=f"{run_id}_fix_failed",
         source_dir=run_dir,
@@ -231,9 +244,19 @@ def verify_fix(
         only_ids=failed_ids,
         runner_fn=runner_fn,
         runs_base_dir=fix_dir,
+        stop_event=stop_event,
     )
 
+    if stop_event and getattr(stop_event, "is_set", lambda: False)():
+        attempt.status = "rejected"
+        (fix_dir / "attempt.json").write_text(
+            attempt.model_dump_json(indent=2), encoding="utf-8"
+        )
+        return attempt
+
     # 5. Re-run passing tests on copy (regression check)
+    if on_step:
+        on_step("regression_check")
     run_all(
         run_id=f"{run_id}_fix_passed",
         source_dir=run_dir,
@@ -241,6 +264,7 @@ def verify_fix(
         only_ids=passed_ids,
         runner_fn=runner_fn,
         runs_base_dir=fix_dir,
+        stop_event=stop_event,
     )
 
     # 6. Collect after results
@@ -296,3 +320,77 @@ def verify_fix(
     )
 
     return attempt
+
+
+def load_fix_attempt(
+    run_id: str,
+    runs_base_dir: Path | str = "runs",
+    attempt_id: Optional[str] = None,
+) -> Optional[FixAttempt]:
+    """Load an existing FixAttempt from runs/<run_id>/fix/."""
+    fix_base = Path(runs_base_dir) / run_id / "fix"
+    if not fix_base.is_dir():
+        return None
+
+    # If attempt.json is directly in fix/
+    direct_att = fix_base / "attempt.json"
+    if direct_att.is_file():
+        try:
+            return FixAttempt.model_validate(json.loads(direct_att.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+
+    # If attempt_id specified
+    if attempt_id:
+        target = fix_base / attempt_id / "attempt.json"
+        if target.is_file():
+            try:
+                return FixAttempt.model_validate(json.loads(target.read_text(encoding="utf-8")))
+            except Exception:
+                pass
+
+    # Otherwise inspect attempt directories, newest first
+    subdirs = sorted(
+        [d for d in fix_base.iterdir() if d.is_dir()],
+        key=lambda d: d.stat().st_mtime,
+        reverse=True,
+    )
+    for d in subdirs:
+        att_file = d / "attempt.json"
+        if att_file.is_file():
+            try:
+                return FixAttempt.model_validate(json.loads(att_file.read_text(encoding="utf-8")))
+            except Exception:
+                continue
+
+    return None
+
+
+def save_golden_fix_attempt(
+    run_id: str,
+    attempt: FixAttempt,
+    runs_base_dir: Path | str = "runs",
+) -> Path:
+    """Export a verified fix attempt into runs/golden/fix/ for offline replay."""
+    base_dir = Path(runs_base_dir).resolve()
+    golden_fix_dir = base_dir / "golden" / "fix"
+    golden_fix_dir.mkdir(parents=True, exist_ok=True)
+
+    src_fix_dir = base_dir / run_id / "fix" / attempt.attempt_id
+    if src_fix_dir.is_dir():
+        for fname in ["attempt.json", "proposal.json", "validation.json", "diff.patch", "results_after.json"]:
+            f = src_fix_dir / fname
+            if f.is_file():
+                shutil.copy2(f, golden_fix_dir / fname)
+    else:
+        (golden_fix_dir / "attempt.json").write_text(
+            attempt.model_dump_json(indent=2), encoding="utf-8"
+        )
+        (golden_fix_dir / "proposal.json").write_text(
+            attempt.proposal.model_dump_json(indent=2), encoding="utf-8"
+        )
+        (golden_fix_dir / "validation.json").write_text(
+            attempt.validation.model_dump_json(indent=2), encoding="utf-8"
+        )
+
+    return golden_fix_dir

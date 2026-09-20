@@ -382,3 +382,32 @@ def test_atomic_apply_to_original_and_revert(tmp_path):
         assert bak_in_fix.read_text(encoding="utf-8") == SAMPLE_SOURCE
     if bak_local.is_file():
         assert bak_local.read_text(encoding="utf-8") == SAMPLE_SOURCE
+
+
+def test_reconcile_hunks_fixes_llm_end_line_off_by_one():
+    """When LLM provides end_line off-by-one or omitting blank lines, reconcile_hunks aligns bounds."""
+    # Line 12 is 'void loop() {'
+    # Line 13 is '    float temp = 25.0;'
+    # LLM says start_line: 12, end_line: 12 (1 line claimed), but original_code has 2 lines:
+    hunk = PatchHunk(
+        id="h_off",
+        start_line=12,
+        end_line=12,
+        original_code="void loop() {\n    float temp = 25.0;",
+        new_code="void loop() {\n    float temp = 26.0;",
+        explanation="Test line bound reconciliation",
+        confidence=0.9,
+        fixes_tests=[],
+    )
+    proposal = PatchProposal(hunks=[hunk], summary="Test reconciliation")
+    validation = validate_patch(
+        source=SAMPLE_SOURCE,
+        proposal=proposal,
+        findings=[_sample_finding([12])],
+    )
+
+    assert validation.ok is True
+    # Hunk should have been aligned to end_line: 13
+    assert hunk.end_line == 13
+    exact_check = next(c for c in validation.checks if c.name == "exact_match")
+    assert exact_check.ok is True

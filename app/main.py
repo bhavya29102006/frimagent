@@ -27,18 +27,36 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from agent.analyzer import analyze_firmware
+from agent.compare import format_comparison_summary, update_reports_with_fix
 from agent.coverage import compute_coverage, RULE_DESCRIPTIONS
 from agent.evaluator import collapse_firmware_lines
+from agent.fixer import (
+    load_fix_attempt,
+    run_autofix,
+    save_golden_fix_attempt,
+    verify_fix,
+)
 from agent.generator import generate_tests
 from agent.models import (
     Finding,
     FirmwareAnalysis,
+    FixAttempt,
+    PatchCheck,
+    PatchHunk,
+    PatchProposal,
+    PatchValidation,
     RunManifest,
     TestCase,
     TestList,
     TestResult,
 )
 from agent.orchestrator import run_all
+from agent.patcher import (
+    apply_to_original,
+    render_diff,
+    render_diff_rows,
+    revert_original,
+)
 from agent.preflight import run_preflight
 from agent.reporter import generate_reports
 from agent.rootcause import run_root_cause
@@ -1088,6 +1106,322 @@ with tab_report:
                             )
                         st.markdown("**Suggested Code Fix:**")
                         st.code(f.suggested_fix, language="cpp")
+
+            st.divider()
+
+            # ==========================================
+            # Auto Fix Section (TASK-028b)
+            # ==========================================
+            st.markdown("### 🔧 Autonomous Firmware Bug Fix")
+            st.markdown(
+                "Generate, validate, and verify minimal C++ code patches directly addressing detected root-cause defects."
+            )
+
+            # Replay Mode / Existing Attempt Discovery
+            attempt_key = f"fix_attempt_{active_run_id}"
+            current_attempt: Optional[FixAttempt] = st.session_state.get(attempt_key)
+
+            if current_attempt is None:
+                # Check if an attempt already exists on disk (e.g. golden replay or saved fix)
+                existing_att = load_fix_attempt(active_run_id, RUNS_DIR)
+                if existing_att:
+                    current_attempt = existing_att
+                    st.session_state[attempt_key] = existing_att
+
+            if active_run_id == "golden":
+                st.info(
+                    "🌟 **Offline Replay Mode**: Viewing pre-recorded golden fix attempt without network, Gemini, or Wokwi simulator calls."
+                )
+
+            # Check if there are failures in this run
+            has_failures = manifest.failed > 0 or manifest.errors > 0
+
+            # 1. Preview Fix Button
+            btn_col1, btn_col2 = st.columns([1, 2])
+            with btn_col1:
+                preview_btn = st.button(
+                    "🔍 Preview Auto Fix",
+                    type="primary" if current_attempt is None else "secondary",
+                    use_container_width=True,
+                    disabled=not has_failures and current_attempt is None,
+                    help="Synthesize a minimal patch with Gemini and execute 7 safety checks."
+                    if has_failures
+                    else "All tests passed in this run!",
+                    key=f"btn_preview_{active_run_id}",
+                )
+
+            if preview_btn:
+                try:
+                    with st.spinner("🤖 Analyzing root causes and generating autonomous patch proposal with Gemini..."):
+                        new_attempt = run_autofix(
+                            run_id=active_run_id,
+                            runs_base_dir=RUNS_DIR,
+                            firmware_dir=FIRMWARE_DIR,
+                        )
+                        st.session_state[attempt_key] = new_attempt
+                        current_attempt = new_attempt
+                        st.rerun()
+                except Exception as exc:
+                    log_ui_error(active_run_id, "preview_autofix", exc)
+                    cause, hint = classify_error(exc)
+                    st.error(f"❌ Could not preview fix: **{cause}**\n\n💡 *Hint:* {hint}")
+
+            if current_attempt is None:
+                if not has_failures:
+                    st.success("✅ No failed tests or errors detected in this run. No firmware fix is required.")
+                else:
+                    st.info("ℹ️ Click **🔍 Preview Auto Fix** to generate an autonomous patch proposal.")
+            else:
+                # 2. Show the Proposal
+                st.markdown("#### 🧩 Patch Proposal")
+                st.info(f"**Patch Summary:** {current_attempt.proposal.summary}")
+
+                for h in current_attempt.proposal.hunks:
+                    hunk_title = f"Hunk `{h.id}` (Lines {h.start_line}..{h.end_line})"
+                    with st.expander(f"🧩 {hunk_title} — {h.explanation[:60]}...", expanded=True):
+                        c_meta1, c_meta2, c_meta3 = st.columns(3)
+                        c_meta1.markdown(f"**Lines**: `{h.start_line}..{h.end_line}`")
+                        fixes_str = ", ".join(f"`{t}`" for t in h.fixes_tests) if h.fixes_tests else "*(none)*"
+                        c_meta2.markdown(f"**Fixes Tests**: {fixes_str}")
+                        c_meta3.markdown(f"**AI confidence (estimate)**: `{h.confidence * 100:.0f}%`")
+
+                        st.markdown(f"**Explanation:** {h.explanation}")
+                        if h.spec_ref:
+                            st.markdown(f"**Spec Rule Reference:** `{h.spec_ref}`")
+
+                        # Side-by-side rows
+                        c_orig, c_sugg = st.columns(2)
+                        with c_orig:
+                            st.markdown(f"🔴 **Original Code (Lines {h.start_line}..{h.end_line})**")
+                            st.code(h.original_code, language="cpp")
+                        with c_sugg:
+                            st.markdown("🟢 **Suggested Code (Replacement)**")
+                            st.code(h.new_code, language="cpp")
+
+                # Unified diff view
+                with st.expander("📄 Unified Diff View", expanded=False):
+                    src_text = ""
+                    src_path = active_run_dir / "firmware_source.txt"
+                    if not src_path.is_file():
+                        src_path = FIRMWARE_SRC_FILE
+                    if src_path.is_file():
+                        src_text = src_path.read_text(encoding="utf-8")
+                    diff_str = render_diff(src_text, current_attempt.proposal) if src_text else ""
+                    st.code(diff_str or "(No diff)", language="diff")
+
+                # 3. Show Validation as a Checklist with Icons & Text
+                st.markdown("#### 🛡️ Safety & Build Validation Checklist")
+                check_name_map = {
+                    "hunk_limit": "Hunk Count Limit (≤ 3 hunks)",
+                    "line_limit": "Line Count Limit (≤ 25 lines total)",
+                    "exact_match": "Exact Match Against Source Code",
+                    "non_overlapping": "No Overlapping Hunks",
+                    "protected_ranges": "Protected Ranges Untouched (spec block, #includes, #defines)",
+                    "scope_adherence": "Scope Adherence (within ±5 lines of suspect lines)",
+                    "spec_block_integrity": "Spec Comment Block Byte-Identical",
+                    "compilation": "PlatformIO Compilation",
+                }
+
+                for chk in current_attempt.validation.checks:
+                    icon = "✅" if chk.ok else "❌"
+                    label = check_name_map.get(chk.name, chk.name.replace("_", " ").title())
+                    st.markdown(f"- {icon} **{label}**: {chk.detail}")
+
+                if not current_attempt.validation.ok:
+                    st.error("⚠️ **Validation Failed:** The proposal violated one or more safety constraints. Applying this patch is disabled.")
+
+                st.divider()
+
+                # 4. [Apply and verify] button
+                st.markdown("#### ⚙️ Sandbox Verification")
+                st.caption("⏱ **Note:** This runs real hardware simulations on a sandbox copy and takes about 5 minutes.")
+
+                col_v1, col_v2 = st.columns([1, 2])
+                with col_v1:
+                    verify_btn = st.button(
+                        "🛠️ Apply and Verify",
+                        type="primary",
+                        disabled=not current_attempt.validation.ok,
+                        help="Compile sandbox copy and re-run failed tests + regression test suite."
+                        if current_attempt.validation.ok
+                        else "Cannot verify an invalid patch.",
+                        key=f"btn_verify_{current_attempt.attempt_id}",
+                        use_container_width=True,
+                    )
+
+                if verify_btn:
+                    stop_evt = st.session_state.get("stop_event")
+                    try:
+                        with st.status("🛠️ Verifying fix in sandbox copy...", expanded=True) as status_box:
+                            def on_verify_step(step: str):
+                                if step == "build":
+                                    st.write("1. 🔨 Compiling sandbox project copy with PlatformIO...")
+                                elif step == "retest_failed":
+                                    st.write("2. 🔄 Re-running failed tests in Wokwi simulator...")
+                                elif step == "regression_check":
+                                    st.write("3. 🛡️ Running full regression check on previously passing tests...")
+
+                            verified_attempt = verify_fix(
+                                attempt=current_attempt,
+                                run_id=active_run_id,
+                                runs_base_dir=RUNS_DIR,
+                                stop_event=stop_evt,
+                                on_step=on_verify_step,
+                            )
+                            st.session_state[attempt_key] = verified_attempt
+                            current_attempt = verified_attempt
+
+                            # Update report.md and report.html with before vs after section
+                            src_text = FIRMWARE_SRC_FILE.read_text(encoding="utf-8") if FIRMWARE_SRC_FILE.is_file() else ""
+                            diff_text = render_diff(src_text, verified_attempt.proposal)
+                            update_reports_with_fix(active_run_id, verified_attempt, diff_text, RUNS_DIR)
+
+                            if verified_attempt.status == "validated":
+                                status_box.update(label="✅ Sandbox verification completed successfully!", state="complete", expanded=False)
+                            else:
+                                status_box.update(label="❌ Fix rejected during sandbox verification.", state="error", expanded=True)
+                            st.rerun()
+                    except Exception as exc:
+                        log_ui_error(active_run_id, "verify_fix", exc)
+                        cause, hint = classify_error(exc)
+                        st.error(f"❌ Verification failed: **{cause}**\n\n💡 *Hint:* {hint}")
+
+                # 5. Before vs After Table
+                if current_attempt.after_counts is not None:
+                    st.markdown("#### 📈 Before vs After Fix Verification")
+                    b = current_attempt.before_counts
+                    a = current_attempt.after_counts or {}
+
+                    b_pass = b.get("passed", 0)
+                    b_tot = b.get("total", 0)
+                    a_pass = a.get("passed", 0)
+                    a_tot = a.get("total", b_tot)
+
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Test Score", f"{a_pass}/{a_tot}", delta=f"{a_pass - b_pass:+d}")
+                    m2.metric("Fixed Tests", len(current_attempt.fixed_tests))
+                    m3.metric(
+                        "Regressions",
+                        len(current_attempt.regressions),
+                        delta=f"{len(current_attempt.regressions)}" if current_attempt.regressions else "0",
+                        delta_color="inverse",
+                    )
+
+                    comp_rows = [
+                        {
+                            "Metric": "Passed Tests",
+                            "Before Fix": f"✅ {b_pass}",
+                            "After Fix": f"✅ {a_pass}",
+                            "Delta": f"+{a_pass - b_pass}" if a_pass >= b_pass else f"{a_pass - b_pass}",
+                        },
+                        {
+                            "Metric": "Failed Tests",
+                            "Before Fix": f"❌ {b.get('failed', 0)}",
+                            "After Fix": f"❌ {a.get('failed', 0)}",
+                            "Delta": f"{a.get('failed', 0) - b.get('failed', 0):+d}",
+                        },
+                        {
+                            "Metric": "Simulator Errors",
+                            "Before Fix": f"⚠ {b.get('errors', 0)}",
+                            "After Fix": f"⚠ {a.get('errors', 0)}",
+                            "Delta": f"{a.get('errors', 0) - b.get('errors', 0):+d}",
+                        },
+                        {
+                            "Metric": "Total Tests",
+                            "Before Fix": str(b_tot),
+                            "After Fix": str(a_tot),
+                            "Delta": "0",
+                        },
+                    ]
+                    st.dataframe(pd.DataFrame(comp_rows), use_container_width=True, hide_index=True)
+
+                    fixed_label = ", ".join(f"`{t}`" for t in current_attempt.fixed_tests) if current_attempt.fixed_tests else "*(none)*"
+                    reg_label = ", ".join(f"`{t}`" for t in current_attempt.regressions) if current_attempt.regressions else "*(none — 0 regressions)*"
+                    st.markdown(f"- **Fixed Tests ({len(current_attempt.fixed_tests)})**: {fixed_label}")
+                    st.markdown(f"- **Regressions ({len(current_attempt.regressions)})**: {reg_label}")
+
+                    is_verified = (
+                        current_attempt.status in ("validated", "applied")
+                        and len(current_attempt.fixed_tests) > 0
+                        and len(current_attempt.regressions) == 0
+                    )
+
+                    if is_verified:
+                        st.success(f"✅ **STATUS: VERIFIED** — {len(current_attempt.fixed_tests)} tests fixed with 0 regressions! The patch is safe to apply.")
+                    else:
+                        rej_cause = ""
+                        if current_attempt.regressions:
+                            rej_cause = f"Regressions detected: tests {', '.join(current_attempt.regressions)} failed after applying patch."
+                        elif len(current_attempt.fixed_tests) == 0:
+                            rej_cause = "Zero failed tests were resolved by the patch."
+                        else:
+                            rej_cause = "Compilation failed on patched sandbox copy."
+                        st.error(f"❌ **STATUS: REJECTED** — {rej_cause}")
+
+                    # 6. Apply to Original, Revert, and Discard
+                    st.divider()
+                    if is_verified:
+                        st.markdown("#### 🚀 Apply Fix to Original Firmware")
+                        confirm_apply = st.checkbox(
+                            "I understand this edits firmware/fan_controller/src/main.cpp, a backup is kept",
+                            key=f"chk_confirm_{current_attempt.attempt_id}",
+                        )
+                        apply_orig_btn = st.button(
+                            "💾 Apply to Original Firmware",
+                            type="primary",
+                            disabled=not confirm_apply or current_attempt.status == "applied",
+                            key=f"btn_apply_orig_{current_attempt.attempt_id}",
+                        )
+                        if apply_orig_btn:
+                            try:
+                                orig_applied = apply_to_original(
+                                    attempt=current_attempt,
+                                    run_id=active_run_id,
+                                    firmware_dir=FIRMWARE_DIR,
+                                    runs_base_dir=RUNS_DIR,
+                                )
+                                st.success(f"✅ Patch applied to original firmware: `{orig_applied}`! Backup preserved at `main.cpp.bak`.")
+                                st.rerun()
+                            except Exception as exc:
+                                log_ui_error(active_run_id, "apply_to_original", exc)
+                                cause, hint = classify_error(exc)
+                                st.error(f"❌ Apply failed: {cause}\n\n💡 *Hint:* {hint}")
+
+                    # Action row: Revert, Discard, Save as Golden Fix
+                    st.markdown("#### 🛠️ Maintenance & Offline Export")
+                    col_act1, col_act2, col_act3 = st.columns(3)
+                    with col_act1:
+                        if st.button("⏮ Revert Original Firmware", key=f"btn_revert_{current_attempt.attempt_id}", use_container_width=True):
+                            try:
+                                revert_original(
+                                    attempt=current_attempt,
+                                    run_id=active_run_id,
+                                    firmware_dir=FIRMWARE_DIR,
+                                    runs_base_dir=RUNS_DIR,
+                                )
+                                st.success("✅ Original firmware restored from backup (`main.cpp.bak`).")
+                                st.rerun()
+                            except Exception as exc:
+                                log_ui_error(active_run_id, "revert_original", exc)
+                                cause, hint = classify_error(exc)
+                                st.error(f"❌ Revert failed: {cause}\n\n💡 *Hint:* {hint}")
+
+                    with col_act2:
+                        if st.button("🗑 Discard Fix Proposal", key=f"btn_discard_{current_attempt.attempt_id}", use_container_width=True):
+                            st.session_state.pop(attempt_key, None)
+                            st.info("Fix proposal removed from active session.")
+                            st.rerun()
+
+                    with col_act3:
+                        if is_verified:
+                            if st.button("🌟 Save as Golden Fix", key=f"btn_save_gold_{current_attempt.attempt_id}", use_container_width=True):
+                                try:
+                                    g_dest = save_golden_fix_attempt(active_run_id, current_attempt, runs_base_dir=RUNS_DIR)
+                                    st.success(f"✅ Saved fix attempt to `{g_dest}` for offline replay!")
+                                except Exception as exc:
+                                    log_ui_error(active_run_id, "save_golden_fix", exc)
+                                    cause, hint = classify_error(exc)
+                                    st.error(f"❌ Could not save golden fix: {cause}")
 
             st.divider()
 

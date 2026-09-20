@@ -50,3 +50,61 @@ def test_get_available_runs():
     runs = get_available_runs()
     assert isinstance(runs, list)
     assert "cache" not in runs
+
+
+def test_load_golden_fix_attempt():
+    """Verify offline replay loads the golden fix attempt from runs/golden/fix/."""
+    from agent.fixer import load_fix_attempt
+    att = load_fix_attempt("golden")
+    assert att is not None
+    assert att.status == "validated"
+    assert len(att.proposal.hunks) >= 1
+    assert att.validation.ok is True
+    assert att.after_counts is not None
+    assert "T04" in att.fixed_tests or len(att.fixed_tests) > 0
+
+
+def test_save_golden_fix_attempt(tmp_path):
+    """Verify save_golden_fix_attempt exports attempt artifacts to golden/fix/."""
+    from agent.fixer import save_golden_fix_attempt
+    from agent.models import FixAttempt, PatchProposal, PatchValidation
+
+    att = FixAttempt(
+        attempt_id="att-test",
+        status="validated",
+        proposal=PatchProposal(hunks=[], summary="Dummy fix"),
+        validation=PatchValidation(ok=True, checks=[]),
+        before_counts={"total": 14, "passed": 11, "failed": 3, "errors": 0},
+    )
+
+    dest = save_golden_fix_attempt("test_run", att, runs_base_dir=tmp_path)
+    assert dest.is_dir()
+    assert (dest / "attempt.json").is_file()
+    assert (dest / "proposal.json").is_file()
+    assert (dest / "validation.json").is_file()
+
+
+def test_classify_error():
+    """Verify classify_error returns friendly cause and hint with no technical tracebacks."""
+    from app.main import classify_error
+    cause, hint = classify_error(Exception("429 RESOURCE_EXHAUSTED rate limit"))
+    assert "429" in cause
+    assert "quota" in hint.lower()
+
+    cause_key, hint_key = classify_error(Exception("GEMINI_API_KEY invalid"))
+    assert "Gemini API key" in cause_key
+
+
+def test_log_ui_error(tmp_path):
+    """Verify log_ui_error writes technical traceback to runs/<run_id>/error.log."""
+    from app.main import log_ui_error
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("app.main.RUNS_DIR", tmp_path)
+        try:
+            raise ValueError("Test error message")
+        except Exception as exc:
+            log_path = log_ui_error("run_test", "test_action", exc)
+            assert log_path.is_file()
+            content = log_path.read_text(encoding="utf-8")
+            assert "ValueError: Test error message" in content
+            assert "Error during 'test_action'" in content

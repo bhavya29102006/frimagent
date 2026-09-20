@@ -1,0 +1,87 @@
+{
+  "attempt_id": "att-golden-01",
+  "status": "validated",
+  "proposal": {
+    "hunks": [
+      {
+        "id": "H1",
+        "start_line": 39,
+        "end_line": 48,
+        "original_code": "  float t = dht.readTemperature();\n\n  if (t >= 60.0) {\n    Serial.println(\"[ALARM] OVERHEAT\");\n    fanOn = true;\n  } else if (t > 30.0) {\n    fanOn = true;\n  } else if (t < 30.0) {\n    fanOn = false;\n  }",
+        "new_code": "  float t = dht.readTemperature();\n\n  if (isnan(t)) {\n    Serial.println(\"[ERROR] SENSOR_FAIL\");\n    fanOn = true;\n  } else if (t >= 60.0) {\n    Serial.println(\"[ALARM] OVERHEAT\");\n    fanOn = true;\n  } else if (!fanOn && t >= 30.0) {\n    fanOn = true;\n  } else if (fanOn && t <= 28.0) {\n    fanOn = false;\n  }",
+        "explanation": "Add sensor disconnect fail-safe (isnan check), correct threshold boundary (>= 30.0), and add 2 C hysteresis (stays ON until <= 28.0).",
+        "confidence": 0.98,
+        "fixes_tests": [
+          "T04",
+          "T11",
+          "T13"
+        ],
+        "spec_ref": "R1, R2, R5"
+      }
+    ],
+    "summary": "Fix temperature threshold boundary check, add hysteresis logic for fan turn-off, and handle sensor failure (NaN) conditions with fail-safe fan operation."
+  },
+  "validation": {
+    "ok": true,
+    "checks": [
+      {
+        "name": "hunk_limit",
+        "ok": true,
+        "detail": "1 hunk(s) (<= 3 allowed)."
+      },
+      {
+        "name": "line_limit",
+        "ok": true,
+        "detail": "13 changed lines (<= 25 allowed)."
+      },
+      {
+        "name": "exact_match",
+        "ok": true,
+        "detail": "All hunks match source text exactly."
+      },
+      {
+        "name": "non_overlapping",
+        "ok": true,
+        "detail": "All hunks are disjoint."
+      },
+      {
+        "name": "protected_ranges",
+        "ok": true,
+        "detail": "No hunk modifies protected ranges."
+      },
+      {
+        "name": "scope_adherence",
+        "ok": true,
+        "detail": "All hunks adhere to root-cause suspect line scope."
+      },
+      {
+        "name": "spec_block_integrity",
+        "ok": true,
+        "detail": "Specification comment block is untouched and byte-identical."
+      },
+      {
+        "name": "compilation",
+        "ok": true,
+        "detail": "Patched firmware compiled successfully."
+      }
+    ]
+  },
+  "before_counts": {
+    "total": 14,
+    "passed": 11,
+    "failed": 3,
+    "errors": 0
+  },
+  "after_counts": {
+    "total": 14,
+    "passed": 14,
+    "failed": 0,
+    "errors": 0
+  },
+  "fixed_tests": [
+    "T04",
+    "T11",
+    "T13"
+  ],
+  "regressions": []
+}

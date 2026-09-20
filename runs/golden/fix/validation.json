@@ -1,0 +1,45 @@
+{
+  "ok": true,
+  "checks": [
+    {
+      "name": "hunk_limit",
+      "ok": true,
+      "detail": "1 hunk(s) (<= 3 allowed)."
+    },
+    {
+      "name": "line_limit",
+      "ok": true,
+      "detail": "13 changed lines (<= 25 allowed)."
+    },
+    {
+      "name": "exact_match",
+      "ok": true,
+      "detail": "All hunks match source text exactly."
+    },
+    {
+      "name": "non_overlapping",
+      "ok": true,
+      "detail": "All hunks are disjoint."
+    },
+    {
+      "name": "protected_ranges",
+      "ok": true,
+      "detail": "No hunk modifies protected ranges."
+    },
+    {
+      "name": "scope_adherence",
+      "ok": true,
+      "detail": "All hunks adhere to root-cause suspect line scope."
+    },
+    {
+      "name": "spec_block_integrity",
+      "ok": true,
+      "detail": "Specification comment block is untouched and byte-identical."
+    },
+    {
+      "name": "compilation",
+      "ok": true,
+      "detail": "Patched firmware compiled successfully."
+    }
+  ]
+}

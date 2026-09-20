@@ -53,13 +53,59 @@ def get_protected_ranges(source: str) -> list[tuple[int, int, str]]:
     return ranges
 
 
+def reconcile_hunks(source: str, hunks: list[PatchHunk]) -> list[PatchHunk]:
+    """Reconcile and align hunk line bounds with the actual source text.
+
+    LLMs frequently miscalculate end_line by omitting blank lines or making an off-by-one
+    counting mistake. This function checks if original_code matches at or near the
+    proposed start_line (within +/- 3 lines), and updates start_line and end_line
+    to match the true source lines.
+    """
+    source_clean = source.replace("\r\n", "\n")
+    source_lines = source_clean.splitlines()
+    total_lines = len(source_lines)
+
+    for h in hunks:
+        orig_norm = "\n".join(h.original_code.replace("\r\n", "\n").splitlines())
+        orig_lines = orig_norm.splitlines()
+        num_orig = len(orig_lines)
+        if num_orig == 0:
+            continue
+
+        # 1. Already exact match?
+        if 1 <= h.start_line <= h.end_line <= total_lines:
+            expected_slice = "\n".join(source_lines[h.start_line - 1 : h.end_line])
+            if expected_slice == orig_norm:
+                continue
+
+        # 2. Check if original_code matches starting at h.start_line with actual line count
+        if 1 <= h.start_line and (h.start_line - 1 + num_orig) <= total_lines:
+            cand_slice = "\n".join(source_lines[h.start_line - 1 : h.start_line - 1 + num_orig])
+            if cand_slice == orig_norm:
+                h.end_line = h.start_line + num_orig - 1
+                continue
+
+        # 3. Check within +/- 3 lines window around start_line
+        min_start = max(1, h.start_line - 3)
+        max_start = min(total_lines - num_orig + 1, h.start_line + 3)
+        for cand_start in range(min_start, max_start + 1):
+            cand_slice = "\n".join(source_lines[cand_start - 1 : cand_start - 1 + num_orig])
+            if cand_slice == orig_norm:
+                h.start_line = cand_start
+                h.end_line = cand_start + num_orig - 1
+                break
+
+    return hunks
+
+
 def apply_hunks_to_source(source: str, hunks: list[PatchHunk]) -> str:
     """Apply a list of patch hunks to source text in memory.
 
     Applies bottom-to-top (descending start_line) to preserve earlier line indices.
     """
+    reconciled = reconcile_hunks(source, hunks)
     lines = source.replace("\r\n", "\n").splitlines()
-    sorted_hunks = sorted(hunks, key=lambda h: h.start_line, reverse=True)
+    sorted_hunks = sorted(reconciled, key=lambda h: h.start_line, reverse=True)
 
     for h in sorted_hunks:
         new_lines = h.new_code.replace("\r\n", "\n").splitlines()
@@ -71,6 +117,7 @@ def apply_hunks_to_source(source: str, hunks: list[PatchHunk]) -> str:
 
 def render_diff(source: str, proposal: PatchProposal) -> str:
     """Generate unified diff text between original and patched source."""
+    proposal.hunks = reconcile_hunks(source, proposal.hunks)
     patched = apply_hunks_to_source(source, proposal.hunks)
     orig_lines = source.replace("\r\n", "\n").splitlines(keepends=True)
     patched_lines = patched.replace("\r\n", "\n").splitlines(keepends=True)
@@ -87,6 +134,7 @@ def render_diff(source: str, proposal: PatchProposal) -> str:
 
 def render_diff_rows(source: str, proposal: PatchProposal) -> list[dict[str, Any]]:
     """Generate structured line-by-line diff rows suitable for tabular or UI rendering."""
+    proposal.hunks = reconcile_hunks(source, proposal.hunks)
     patched = apply_hunks_to_source(source, proposal.hunks)
     orig_lines = source.replace("\r\n", "\n").splitlines()
     patched_lines = patched.replace("\r\n", "\n").splitlines()
@@ -163,6 +211,9 @@ def validate_patch(
     if not proposal.hunks:
         checks.append(PatchCheck(name="non_empty", ok=False, detail="Patch proposal contains 0 hunks."))
         return PatchValidation(ok=False, checks=checks)
+
+    # Reconcile and align hunk bounds against actual source text
+    proposal.hunks = reconcile_hunks(source, proposal.hunks)
 
     # (e) Limits check: hunk count and changed lines
     hunk_count = len(proposal.hunks)
@@ -523,8 +574,11 @@ def propose_patch(
             cache_dir=cache_dir,
         )
         if proposal and proposal.hunks:
+            proposal.hunks = reconcile_hunks(source, proposal.hunks)
             return proposal
     except Exception:
         pass
 
-    return _fallback_patch_proposal(source, findings, failed_results)
+    fallback = _fallback_patch_proposal(source, findings, failed_results)
+    fallback.hunks = reconcile_hunks(source, fallback.hunks)
+    return fallback

@@ -238,9 +238,10 @@ STRICT CONSTRAINTS:
 3. PROTECTED RANGES:
    - NEVER touch or modify the top SPECIFICATION comment block (from line 1 to the line containing '*/').
    - NEVER touch or modify '#include' or '#define' lines.
-4. EXACT ORIGINAL CODE:
+4. EXACT ORIGINAL CODE & LINE BOUNDS:
    - For every hunk, 'original_code' must be copied EXACTLY as it appears in the numbered source between 'start_line' and 'end_line' (without line numbers).
    - 'start_line' and 'end_line' are 1-indexed line numbers in the original source code.
+   - 'end_line' MUST equal 'start_line + (number of lines in original_code) - 1'. Remember that blank lines also count as lines! For instance, lines 39 to 41 is 3 lines.
 5. TESTS FIXED:
    - In each hunk, list the exact test IDs it resolves in 'fixes_tests' (e.g. ["T02", "T03"]).
 6. OUTPUT: Return valid JSON strictly conforming to the PatchProposal schema (containing 'hunks' array and a 'summary').
