@@ -13,17 +13,17 @@
  *  - Bug 1 (Access Control Defect): Lockout timer doesn't reset failed_attempts counter after expiry.
  */
 
-#include <Arduino.h>
+include <Arduino.h>
 
 #define LOCK_PIN 8
 #define BUZZER_PIN 9
 #define LED_GREEN 10
 #define LED_RED 11
 
-const char MASTER_PIN[] = "4519";
+const char MASTER_PIN[] = "4519"
 int failed_attempts = 0;
 bool is_locked = true;
-unsigned long lockout_until = 0;
+unsigned long lockout_until = 0
 
 void setup() {
   Serial.begin(9600);

@@ -40,12 +40,12 @@ void process_water_level(float level_pct) {
     }
 
     // Rule R1 & R2: Hysteresis control logic:
-    // Turn ON when level/temp >= 30.0
-    if (level_pct >= PUMP_ON_LEVEL) {
+    // PLANTED BUG 1: Uses strict inequality (> 30.0) instead of (>= 30.0)
+    if (level_pct > PUMP_ON_LEVEL) {
         pump_active = true;
     }
-    // Turn OFF when level/temp <= 28.0
-    else if (level_pct <= PUMP_OFF_LEVEL) {
+    // PLANTED BUG 2: Turns OFF prematurely when < 30.0 instead of <= 28.0 (missing hysteresis)
+    else if (pump_active && level_pct < 30.0f) {
         pump_active = false;
     }
 

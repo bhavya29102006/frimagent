@@ -571,27 +571,12 @@ with st.sidebar:
     st.divider()
     st.subheader("Configuration")
 
-    avail_fws = get_available_firmwares()
-
-    def format_fw_opt(fw_key: str) -> str:
-        if fw_key in FIRMWARE_PRESETS:
-            return FIRMWARE_PRESETS[fw_key]["title"]
-        return f"📁 {fw_key}"
-
-    cur_fw_idx = 0
-    if _active_fw_name in avail_fws:
-        cur_fw_idx = avail_fws.index(_active_fw_name)
-
-    chosen_fw = st.selectbox(
-        "Target Firmware",
-        options=avail_fws,
-        index=cur_fw_idx,
-        format_func=format_fw_opt,
-        key="target_firmware_choice",
-        help="Select target firmware. FirmAgent adapts simulator, compiler diagnostics, and test suites automatically.",
-    )
-    if chosen_fw in FIRMWARE_PRESETS:
-        st.caption(f"💡 *{FIRMWARE_PRESETS[chosen_fw]['desc']}*")
+    # Display active workspace status cleanly in sidebar (selection managed on Main screen)
+    fw_title = FIRMWARE_PRESETS.get(_active_fw_name, {}).get("title", f"📁 {_active_fw_name}")
+    st.markdown(f"🎯 **Active Workspace:**")
+    st.markdown(f"**{fw_title}**")
+    if _active_fw_name in FIRMWARE_PRESETS:
+        st.caption(f"💡 *{FIRMWARE_PRESETS[_active_fw_name]['desc']}*")
 
     # Multi-Simulator Selector
     sim_options = {
@@ -603,7 +588,7 @@ with st.sidebar:
     sim_keys = list(sim_options.keys())
     current_stored_sim = st.session_state.get("simulator_engine_choice")
     if current_stored_sim not in sim_keys:
-        def_sim = FIRMWARE_PRESETS.get(chosen_fw, {}).get("default_sim", "wokwi")
+        def_sim = FIRMWARE_PRESETS.get(_active_fw_name, {}).get("default_sim", "wokwi")
         default_sim_idx = sim_keys.index(def_sim) if def_sim in sim_keys else 0
     else:
         default_sim_idx = sim_keys.index(current_stored_sim)
@@ -794,15 +779,41 @@ with tab_run:
         fw_col1, fw_col2 = st.columns([3, 2])
 
         with fw_col1:
-            st.markdown("**📂 Firmware Source: Quick-Load or Upload**")
+            st.markdown("**📂 Firmware Source & Workspace Selection**")
             up_mode = st.radio(
                 "Source Mode",
-                options=["📥 Load from Sample Library", "💻 Upload Local File from Disk"],
+                options=[
+                    "📁 Choose Existing Project Workspace",
+                    "📥 Load from Sample Library",
+                    "💻 Upload Custom File from Disk",
+                ],
                 horizontal=True,
                 label_visibility="collapsed",
                 key="fw_source_mode_radio",
             )
-            if up_mode == "📥 Load from Sample Library":
+            avail_fws = get_available_firmwares()
+            def format_fw_opt(fw_key: str) -> str:
+                if fw_key in FIRMWARE_PRESETS:
+                    return FIRMWARE_PRESETS[fw_key]["title"]
+                return f"📁 {fw_key}"
+
+            if up_mode == "📁 Choose Existing Project Workspace":
+                cur_fw_idx = avail_fws.index(_active_fw_name) if _active_fw_name in avail_fws else 0
+                chosen_fw = st.selectbox(
+                    "Active Firmware Project Workspace",
+                    options=avail_fws,
+                    index=cur_fw_idx,
+                    format_func=format_fw_opt,
+                    key="main_project_workspace_select",
+                    help="Switch active firmware project workspace. Diagnostics, simulator, and active source adapt immediately.",
+                )
+                if chosen_fw != _active_fw_name:
+                    st.session_state["pending_fw_choice"] = chosen_fw
+                    def_sim = FIRMWARE_PRESETS.get(chosen_fw, {}).get("default_sim", "virtual_mock")
+                    st.session_state["pending_sim_choice"] = def_sim
+                    st.rerun()
+
+            elif up_mode == "📥 Load from Sample Library":
                 local_samples = get_local_sample_firmwares()
                 sample_names = list(local_samples.keys())
                 sel_sample = st.selectbox(
@@ -810,13 +821,24 @@ with tab_run:
                     options=sample_names,
                     format_func=lambda x: f"📄 {x}",
                     key="sel_sample_preset_box",
-                    help="Select any sample firmware to immediately inject it into the active workspace.",
+                    help="Select any sample firmware to immediately inject it into the matching workspace.",
                 )
-                if st.button("📥 Load Sample into Active Workspace", use_container_width=True, key="load_sample_btn"):
+                sample_to_project = {
+                    "1_fan_controller.cpp": "fan_controller",
+                    "2_incubator_controller.cpp": "incubator_controller",
+                    "3_smart_door_lock.cpp": "smart_door_lock",
+                    "4_water_tank_monitor.c": "water_tank_monitor",
+                    "5_iot_weather_node.py": "iot_weather_node",
+                    "6_broken_syntax_demo.cpp": "broken_syntax_demo",
+                }
+                if st.button("📥 Load Sample into Workspace", use_container_width=True, key="load_sample_btn"):
                     if sel_sample and sel_sample in local_samples:
+                        target_fw = sample_to_project.get(sel_sample, _active_fw_name)
+                        target_dir = FIRMWARE_BASE_DIR / target_fw
+                        target_dir.mkdir(parents=True, exist_ok=True)
                         target_path = local_samples[sel_sample]
                         fw_content = target_path.read_text(encoding="utf-8")
-                        dest_file = save_uploaded_source_to_firmware(FIRMWARE_DIR, target_path.name, fw_content)
+                        dest_file = save_uploaded_source_to_firmware(target_dir, target_path.name, fw_content)
                         det_lang = detect_firmware_language(dest_file)
 
                         # Remove stale dev firmware_hash to force fresh analysis
@@ -827,32 +849,57 @@ with tab_run:
                             except Exception:
                                 pass
 
+                        st.session_state["pending_fw_choice"] = target_fw
                         # Auto-set simulator engine via pending state to avoid widget lifecycle error
                         if det_lang == "python":
                             st.session_state["pending_sim_choice"] = "python_sim"
                         elif det_lang == "c":
                             st.session_state["pending_sim_choice"] = "native_c"
                         else:
-                            st.session_state["pending_sim_choice"] = "virtual_mock"
+                            def_sim = FIRMWARE_PRESETS.get(target_fw, {}).get("default_sim", "virtual_mock")
+                            st.session_state["pending_sim_choice"] = def_sim
 
-                        st.success(f"✅ Loaded `{sel_sample}` into `{FIRMWARE_DIR.name}`! Detected: `{det_lang.upper()}`.")
+                        st.success(f"✅ Loaded `{sel_sample}` into `{target_fw}`! Detected: `{det_lang.upper()}`.")
                         time.sleep(0.5)
                         st.rerun()
 
             else:
-                st.caption("📁 Browse files on your computer. You can also pick from the local `sample_firmwares/` folder:")
+                st.caption("📁 Browse files on your computer or pick from the `sample_firmwares/` folder:")
                 uploaded_fw = st.file_uploader(
                     "Upload Custom Firmware Source (.cpp, .ino, .c, .py)",
                     type=["cpp", "ino", "c", "h", "py"],
                     key="fw_upload_file",
-                    help="Upload a target firmware file. It will be loaded into the active firmware directory.",
+                    help="Upload a target firmware file. It will be loaded and become the active workspace.",
                 )
                 if uploaded_fw is not None:
                     if st.session_state.get("last_uploaded_fw") != uploaded_fw.name:
                         try:
                             fw_content = uploaded_fw.getvalue().decode("utf-8", errors="replace")
-                            dest_file = save_uploaded_source_to_firmware(FIRMWARE_DIR, uploaded_fw.name, fw_content)
+                            
+                            # Determine target workspace intelligently from file name
+                            fname_lower = uploaded_fw.name.lower()
+                            sample_to_project = {
+                                "fan_controller": "fan_controller",
+                                "incubator": "incubator_controller",
+                                "door_lock": "smart_door_lock",
+                                "smart_door": "smart_door_lock",
+                                "water_tank": "water_tank_monitor",
+                                "iot_weather": "iot_weather_node",
+                                "weather": "iot_weather_node",
+                                "broken_syntax": "broken_syntax_demo",
+                            }
+                            target_fw = "custom_uploaded"
+                            for kw, proj in sample_to_project.items():
+                                if kw in fname_lower:
+                                    target_fw = proj
+                                    break
+                            
+                            target_dir = FIRMWARE_BASE_DIR / target_fw
+                            target_dir.mkdir(parents=True, exist_ok=True)
+                            dest_file = save_uploaded_source_to_firmware(target_dir, uploaded_fw.name, fw_content)
                             det_lang = detect_firmware_language(dest_file)
+
+                            st.session_state["pending_fw_choice"] = target_fw
 
                             # Configure simulator via pending state to avoid widget lifecycle error
                             if det_lang == "python":
@@ -860,7 +907,8 @@ with tab_run:
                             elif det_lang == "c":
                                 st.session_state["pending_sim_choice"] = "native_c"
                             else:
-                                st.session_state["pending_sim_choice"] = "virtual_mock"
+                                def_sim = FIRMWARE_PRESETS.get(target_fw, {}).get("default_sim", "virtual_mock")
+                                st.session_state["pending_sim_choice"] = def_sim
 
                             dev_dir = RUNS_DIR / "dev"
                             if (dev_dir / "firmware_hash.txt").is_file():
@@ -870,7 +918,7 @@ with tab_run:
                                     pass
 
                             st.session_state["last_uploaded_fw"] = uploaded_fw.name
-                            st.success(f"✅ Uploaded `{uploaded_fw.name}`! Detected Language: `{det_lang.upper()}`.")
+                            st.success(f"✅ Uploaded `{uploaded_fw.name}` into `{target_fw}`! Active workspace updated.")
                             time.sleep(0.5)
                             st.rerun()
                         except Exception as up_exc:
