@@ -67,17 +67,18 @@ def run_test(
     test: TestCase,
     firmware_dir: Path | str,
     run_dir: Path | str,
+    simulator_name: str = "wokwi",
 ) -> TestResult:
     """Execute a TestCase in an isolated temporary simulation folder.
 
-    Steps:
-    1. Prepares temp folder runs/<run_dir>/sim/<test_id>/
-    2. Copies firmware.hex and firmware.elf into the temp folder
-    3. Compiles the scenario.test.yaml and diagram.json there
-    4. Executes wokwi-cli with 20s timeout
-    5. Determines initial status (PASS=0, FAIL=42, ERROR=other)
-    6. Retries once if status is ERROR (never on FAIL or PASS)
+    Supports pluggable simulators: 'wokwi', 'virtual_mock', 'native_c', 'python_sim'.
+    Defaults to 'wokwi'.
     """
+    if simulator_name and simulator_name != "wokwi":
+        from agent.simulators.registry import get_simulator
+        sim = get_simulator(simulator_name)
+        return sim.run_test(test=test, firmware_dir=firmware_dir, run_dir=run_dir)
+
     fw_path = Path(firmware_dir).resolve()
     target_run_dir = Path(run_dir).resolve()
     temp_dir = target_run_dir / "sim" / test.id

@@ -22,6 +22,7 @@ def run_all(
     runs_base_dir: Path | str = "runs",
     enable_followup: bool = False,
     max_followup_rounds: int = 1,
+    simulator_name: str = "wokwi",
 ) -> RunManifest:
     """Execute all tests sequentially with progress tracking and persistent state.
 
@@ -102,7 +103,12 @@ def run_all(
     (run_dir / "results.json").write_text("[]", encoding="utf-8")
 
     # 5. Run loop
-    run_func = runner_fn if runner_fn is not None else run_test
+    if runner_fn is not None:
+        run_func = runner_fn
+    else:
+        run_func = lambda test, firmware_dir, run_dir: run_test(
+            test=test, firmware_dir=firmware_dir, run_dir=run_dir, simulator_name=simulator_name
+        )
     results: list[TestResult] = []
     stopped = False
     total = len(tests)
@@ -338,6 +344,21 @@ def run_all(
     (run_dir / "manifest.json").write_text(
         manifest.model_dump_json(indent=2), encoding="utf-8"
     )
+
+    # 8. Archive run into SQLite backend database
+    try:
+        from agent.db import save_run_record
+        source_code_cand = Path(firmware_dir) / "src" / "main.cpp"
+        src_text = source_code_cand.read_text(encoding="utf-8") if source_code_cand.is_file() else None
+        save_run_record(
+            manifest=manifest,
+            results=results,
+            findings=None,
+            source_code=src_text,
+            simulator_name=simulator_name,
+        )
+    except Exception:
+        pass
 
     if callable(on_event):
         try:

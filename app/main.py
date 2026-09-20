@@ -66,6 +66,17 @@ from agent.syntax_fixer import (
     check_firmware_syntax,
     restore_firmware_backup,
 )
+from agent.db import (
+    delete_firmware_cache,
+    get_db_stats,
+    get_firmware_cache,
+    save_firmware_cache,
+)
+from agent.simulators.registry import (
+    detect_firmware_language,
+    get_simulator,
+    list_available_simulators,
+)
 
 st.set_page_config(
     page_title="FirmAgent — Autonomous Firmware Testing",
@@ -219,14 +230,28 @@ def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_even
         dev_dir = RUNS_DIR / "dev"
         dev_dir.mkdir(parents=True, exist_ok=True)
 
-        # 1. Ensure Analysis and Tests exist
-        if (
+        # 1. Ensure Analysis and Tests exist (Check SQLite Database Cache first!)
+        source_code = FIRMWARE_SRC_FILE.read_text(encoding="utf-8")
+        cached_entry = get_firmware_cache(source_code)
+
+        if cached_entry is not None:
+            shared_state["status"] = f"1. Backend DB: Loaded cached analysis & tests (Hash: {cached_entry['firmware_hash'][:8]})... (Gemini Bypassed)"
+            shared_state["progress"] = 25
+            analysis = cached_entry["analysis"]
+            tests = cached_entry["tests"]
+            (dev_dir / "analysis.json").write_text(
+                analysis.model_dump_json(indent=2), encoding="utf-8"
+            )
+            (dev_dir / "tests.json").write_text(
+                TestList(tests=tests).model_dump_json(indent=2),
+                encoding="utf-8",
+            )
+        elif (
             not (dev_dir / "analysis.json").is_file()
             or not (dev_dir / "tests.json").is_file()
         ):
             shared_state["status"] = "1. Build & Spec: Analyzing firmware with Gemini..."
             shared_state["progress"] = 15
-            source_code = FIRMWARE_SRC_FILE.read_text(encoding="utf-8")
             analysis = analyze_firmware(source_code)
             (dev_dir / "analysis.json").write_text(
                 analysis.model_dump_json(indent=2), encoding="utf-8"
@@ -237,12 +262,22 @@ def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_even
                 shared_state["done"] = True
                 return
 
-            shared_state["status"] = "2. Test Generation: Synthesizing test cases..."
+            shared_state["status"] = "2. Test Generation: Synthesizing test cases with Gemini..."
             shared_state["progress"] = 25
             tests = generate_tests(analysis, source_code, target_count=16)
             (dev_dir / "tests.json").write_text(
                 TestList(tests=tests).model_dump_json(indent=2),
                 encoding="utf-8",
+            )
+
+            # Store into SQLite Backend Database
+            lang = detect_firmware_language(FIRMWARE_SRC_FILE)
+            save_firmware_cache(
+                source_code=source_code,
+                firmware_name=FIRMWARE_DIR.name or "fan_controller",
+                language=lang,
+                analysis=analysis,
+                tests=tests,
             )
 
         if stop_event.is_set():
@@ -251,7 +286,11 @@ def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_even
             return
 
         # 2. Run simulation
-        shared_state["status"] = "3. Wokwi Simulation: Initializing virtual hardware..."
+        sim_name = shared_state.get("simulator_name", "wokwi")
+        sim_engine = get_simulator(sim_name)
+        sim_label = sim_engine.display_name
+
+        shared_state["status"] = f"3. {sim_label}: Initializing hardware..."
         shared_state["progress"] = 30
 
         def on_sim_event(ev: dict[str, Any]) -> None:
@@ -259,7 +298,7 @@ def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_even
                 idx = ev.get("index", 1)
                 tot = ev.get("total", 1)
                 tid = ev.get("test_id", "")
-                shared_state["status"] = f"3. Wokwi Simulation: Running [{idx}/{tot}] {tid}..."
+                shared_state["status"] = f"3. {sim_engine.name.upper()}: Running [{idx}/{tot}] {tid}..."
                 pct = int(30 + ((idx - 1) / max(1, tot)) * 45)
                 shared_state["progress"] = min(pct, 75)
             elif ev.get("type") == "test_finished":
@@ -270,7 +309,7 @@ def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_even
                 status = res.status if res else "DONE"
                 pct = int(30 + (idx / max(1, tot)) * 45)
                 shared_state["progress"] = min(pct, 75)
-                shared_state["status"] = f"3. Wokwi Simulation: [{idx}/{tot}] {tid} -> {status}"
+                shared_state["status"] = f"3. {sim_engine.name.upper()}: [{idx}/{tot}] {tid} -> {status}"
             elif ev.get("type") == "followup_started":
                 shared_state["status"] = f"3. Follow-up: Probing failures with {ev.get('count')} tests..."
 
@@ -282,6 +321,7 @@ def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_even
             on_event=on_sim_event,
             stop_event=stop_event,
             enable_followup=followup_opt,
+            simulator_name=sim_name,
         )
         new_run_dir = RUNS_DIR / manifest.run_id
 
@@ -349,6 +389,29 @@ with st.sidebar:
         options=["Demo: fan_controller (Arduino Uno + DHT22)"],
         index=0,
     )
+
+    # Multi-Simulator Selector
+    sim_options = {
+        "wokwi": "Wokwi Hardware Simulator (Arduino Uno + Circuit)",
+        "virtual_mock": "Universal Virtual Hardware Simulator (Zero-Dependency)",
+        "native_c": "Native C/C++ Host Runner (GCC/Clang)",
+        "python_sim": "MicroPython / Embedded Python Runner",
+    }
+    selected_sim_id = st.selectbox(
+        "Simulator Engine",
+        options=list(sim_options.keys()),
+        format_func=lambda x: sim_options[x],
+        index=0,
+        key="simulator_engine_choice",
+        help="Choose simulator engine. Use 'Universal Virtual Hardware' for instant execution without Wokwi CLI.",
+    )
+
+    # Backend Database Stats
+    try:
+        db_stats = get_db_stats()
+        st.caption(f"💾 **Backend DB (`firmagent.db`):** {db_stats['cached_firmwares']} firmware(s) cached | {db_stats['recorded_runs']} run(s) archived")
+    except Exception:
+        pass
 
     # Run Selector / Replay
     avail_runs = get_available_runs()
@@ -474,16 +537,43 @@ with tab_run:
     # Firmware Target & Pre-Flight Syntax Check
     with st.expander("🔌 Target Firmware & Syntax Pre-Flight Validation", expanded=True):
         st.markdown(
-            "Upload or verify the target Arduino/C++ firmware before testing. "
+            "Upload or verify the target Arduino/C++/Python firmware before testing. "
             "If the source has syntax errors (missing semicolons, braces, typos), click **🛠️ Auto-Fix Syntax Errors** to diagnose and repair them automatically with Gemini."
         )
+
+        fw_content_current = FIRMWARE_SRC_FILE.read_text(encoding="utf-8") if FIRMWARE_SRC_FILE.is_file() else ""
+        det_lang = detect_firmware_language(fw_content_current)
+        cached_record = get_firmware_cache(fw_content_current) if fw_content_current else None
+        current_sim_id = st.session_state.get("simulator_engine_choice", "wokwi")
+
+        badge_c1, badge_c2 = st.columns(2)
+        with badge_c1:
+            st.markdown(f"🏷️ **Detected Language:** `{det_lang.upper()}` | **Selected Engine:** `{current_sim_id}`")
+        with badge_c2:
+            if cached_record is not None:
+                st.markdown(f"⚡ **Backend DB Status:** `CACHED` (SHA: `{cached_record['firmware_hash'][:8]}`) — *Gemini Bypassed*")
+            else:
+                st.markdown("🌐 **Backend DB Status:** `FRESH` — *Will query Gemini & Cache to DB*")
+
+        if cached_record is not None:
+            col_msg, col_clr = st.columns([3, 1])
+            with col_msg:
+                st.caption("⚡ *Analysis & 16-test suite are cached in `runs/firmagent.db`. Re-running will load instantly from SQLite with 0 Gemini calls.*")
+            with col_clr:
+                if st.button("🗑️ Invalidate Cache", key="clear_cache_btn", help="Evict from SQLite cache and force fresh LLM analysis."):
+                    delete_firmware_cache(fw_content_current)
+                    st.success("Cache evicted! Next run will query Gemini.")
+                    time.sleep(0.5)
+                    st.rerun()
+
+        st.divider()
 
         fw_col1, fw_col2 = st.columns([3, 2])
 
         with fw_col1:
             uploaded_fw = st.file_uploader(
-                "Upload Custom Firmware Source (.cpp, .ino, .c)",
-                type=["cpp", "ino", "c", "h"],
+                "Upload Custom Firmware Source (.cpp, .ino, .c, .py)",
+                type=["cpp", "ino", "c", "h", "py"],
                 key="fw_upload_file",
                 help="Upload a target firmware file. It will replace src/main.cpp with a backup saved to main.cpp.bak.",
             )
@@ -552,13 +642,17 @@ with tab_run:
     col_start, col_stop = st.columns([2, 1])
     is_running = st.session_state.get("pipeline_running", False)
 
+    # Standalone simulators do not require Wokwi CLI or Wokwi token
+    sim_is_standalone = current_sim_id in ("virtual_mock", "native_c", "python_sim")
+    can_start = (preflight_ok or sim_is_standalone) and not is_running
+
     with col_start:
         start_btn = st.button(
             "🚀 Run Autonomous Test",
             type="primary",
             use_container_width=True,
-            disabled=not preflight_ok or is_running,
-            help="Resolve preflight issues above before starting a live simulation run." if not preflight_ok else None,
+            disabled=not can_start,
+            help="Resolve preflight issues above before starting a Wokwi run, or switch to 'Universal Virtual Hardware Simulator' in the sidebar." if not can_start and not is_running else None,
         )
 
     with col_stop:
@@ -581,7 +675,7 @@ with tab_run:
     steps_labels = [
         "1. Build & Spec",
         "2. Test Generation",
-        "3. Wokwi Simulation",
+        "3. Simulation Engine",
         "4. Root Cause",
         "5. Final Report",
     ]
@@ -609,6 +703,7 @@ with tab_run:
                 "error": None,
                 "run_id": new_run_id,
                 "enable_followup": enable_followup_val,
+                "simulator_name": current_sim_id,
             }
             st.session_state["pipeline_shared"] = shared_data
             st.session_state["pipeline_running"] = True
