@@ -53,6 +53,29 @@ def build_firmware(
     if not p_dir.is_dir():
         return False, f"Project directory not found: {p_dir}", {}
 
+    # Support Python/MicroPython firmwares (validate syntax without PlatformIO)
+    py_candidate = None
+    for cand in (p_dir / "src" / "main.py", p_dir / "main.py"):
+        if cand.is_file():
+            py_candidate = cand
+            break
+    if not py_candidate and not (p_dir / "platformio.ini").is_file():
+        py_files = list((p_dir / "src").glob("*.py")) if (p_dir / "src").is_dir() else []
+        if not py_files:
+            py_files = list(p_dir.glob("*.py"))
+        if py_files:
+            py_candidate = py_files[0]
+
+    if py_candidate and not (p_dir / "platformio.ini").is_file():
+        import py_compile
+        try:
+            py_compile.compile(str(py_candidate), doraise=True)
+            return True, f"Python syntax check passed ({py_candidate.name}).", {"py": py_candidate}
+        except py_compile.PyCompileError as pe:
+            return False, f"Python syntax error in {py_candidate.name}:\n{pe}", {}
+        except Exception as exc:
+            return False, f"Python validation error: {exc}", {}
+
     cmd = find_pio_command()
 
     try:

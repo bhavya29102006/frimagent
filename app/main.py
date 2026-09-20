@@ -167,6 +167,12 @@ FIRMWARE_PRESETS: dict[str, dict[str, Any]] = {
         "lang": "cpp",
         "default_sim": "virtual_mock",
     },
+    "robot_obstacle_avoidance": {
+        "title": "🤖 robot_obstacle_avoidance (Gazebo 3D / ROS2 Node)",
+        "desc": "Autonomous differential drive robot with LiDAR ray scanner, obstacle avoidance & emergency brake.",
+        "lang": "python",
+        "default_sim": "gazebo",
+    },
     "custom_uploaded": {
         "title": "📁 custom_uploaded (Active User Upload Slot)",
         "desc": "Custom workspace slot for uploading and testing your own embedded C, C++, or Python firmware.",

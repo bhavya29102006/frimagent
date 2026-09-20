@@ -3,7 +3,7 @@
 from pathlib import Path
 import pytest
 
-from agent.models import Finding, PatchHunk, PatchProposal
+from agent.models import Finding, PatchHunk, PatchProposal, TestResult
 from agent.patcher import (
     apply_hunks_to_source,
     apply_patch_to_copy,
@@ -411,3 +411,43 @@ def test_reconcile_hunks_fixes_llm_end_line_off_by_one():
     assert hunk.end_line == 13
     exact_check = next(c for c in validation.checks if c.name == "exact_match")
     assert exact_check.ok is True
+
+
+def test_python_firmware_fallback_patch_and_validation(tmp_path: Path):
+    """Fallback patcher synthesizes valid hunks for Python firmwares and compiles without PlatformIO."""
+    from agent.patcher import _fallback_patch_proposal
+
+    py_source = Path("firmware/iot_weather_node/src/main.py").read_text(encoding="utf-8")
+    failed_test = TestResult(
+        test_id="T01",
+        status="FAIL",
+        exit_code=0,
+        duration_s=0.1,
+        expected=["[DATA] temp=30.0 fan=ON"],
+        observed_lines=["temp=30.0 fan=OFF"],
+        serial_log="[DATA] temp=30.0 fan=OFF",
+    )
+    proposal = _fallback_patch_proposal(
+        source=py_source,
+        findings=[_sample_finding([43])],
+        failed_results=[failed_test],
+    )
+    assert len(proposal.hunks) == 1
+    assert "temp_val >= TEMP_FAN_ON" in proposal.hunks[0].new_code
+
+    # Create dummy project copy dir
+    proj_dir = tmp_path / "py_proj"
+    src_dir = proj_dir / "src"
+    src_dir.mkdir(parents=True)
+    (src_dir / "main.py").write_text(py_source, encoding="utf-8")
+
+    validation = validate_patch(
+        source=py_source,
+        proposal=proposal,
+        findings=[_sample_finding([43])],
+        project_copy_dir=proj_dir,
+    )
+    assert validation.ok is True
+    comp_check = next(c for c in validation.checks if c.name == "compilation")
+    assert comp_check.ok is True
+

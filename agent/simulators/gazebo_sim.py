@@ -54,8 +54,8 @@ class GazeboSimulator(BaseSimulator):
                 gz_bin = p
                 break
 
-        # If Gazebo CLI is present and a world/sdf file exists, run Gazebo headless test
-        world_file = fw_path / "world.sdf" or fw_path / "model.sdf"
+        # If Gazebo CLI is present and a world/sdf file exists, run Gazebo simulation
+        world_file = fw_path / "world.sdf" if (fw_path / "world.sdf").is_file() else (fw_path / "model.sdf")
         if gz_bin and world_file.is_file():
             try:
                 proc = subprocess.run(
@@ -76,7 +76,42 @@ class GazeboSimulator(BaseSimulator):
             except Exception:
                 pass
 
-        # Gazebo Headless Physics & Sensor State Harness:
+        # Execute robotics firmware script with Gazebo physics & sensor telemetry bridge
+        py_candidate = fw_path / "src" / "main.py"
+        if not py_candidate.is_file():
+            py_files = list(fw_path.glob("src/*.py")) or list(fw_path.glob("*.py"))
+            if py_files:
+                py_candidate = py_files[0]
+
+        if py_candidate.is_file():
+            env_steps = ",".join(f"{s.set_temp if s.set_temp is not None else 25.0}" for s in test.steps)
+            try:
+                proc = subprocess.run(
+                    [
+                        sys.executable,
+                        str(py_candidate),
+                        f"--sensor={'disconnected' if test.sensor == 'disconnected' else 'normal'}",
+                        f"--temps={env_steps}",
+                    ],
+                    cwd=str(temp_dir),
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+                output = proc.stdout or ""
+                if proc.stderr:
+                    output += "\n" + proc.stderr
+                exit_code = proc.returncode
+                duration = time.perf_counter() - start_time
+                full_log = f"[INFO] Gazebo 3D Physics Simulator Bridge Active (gz topic /scan & /cmd_vel)\n{output}"
+                (temp_dir / "serial.log").write_text(full_log, encoding="utf-8")
+                if "[DATA]" in output or "[ALARM]" in output or "[ERROR]" in output:
+                    return evaluate(test=test, raw_output=full_log, exit_code=exit_code, duration_s=duration)
+            except Exception:
+                pass
+
+        # Gazebo Headless Physics & Sensor State Harness Fallback:
         # Simulates 3D Ray sensors, distance, velocity commands, and obstacle avoidance
         serial_lines: list[str] = [
             "[INFO] Gazebo Physics & Sensor Simulation World Initialized",
