@@ -65,6 +65,7 @@ class TestResult(BaseModel):
     observed_lines: list[str]  # relevant serial lines
     serial_log: str
     violated_must_not: list[str] = []
+    missing_expected: list[str] = []
     error_message: Optional[str] = None
 
 
@@ -86,7 +87,7 @@ class RunManifest(BaseModel):
     firmware_name: str
     started_at: str
     finished_at: Optional[str] = None
-    status: Literal["running", "done", "failed"]
+    status: Literal["running", "done", "failed", "stopped"]
     total_tests: int = 0
     passed: int = 0
     failed: int = 0

@@ -9,6 +9,7 @@ import sys
 import time
 from dotenv import load_dotenv
 from agent.compiler import compile_test
+from agent.evaluator import evaluate
 from agent.models import TestCase, TestResult
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -114,10 +115,7 @@ def run_test(
     ]
 
     # 5. Run simulation (with one retry on ERROR only, never on FAIL)
-    last_exit_code: int | None = None
-    last_serial_log: str = ""
-    last_duration: float = 0.0
-    status: str = "ERROR"
+    last_result: TestResult | None = None
     max_runs = 2
 
     for attempt in range(max_runs):
@@ -157,32 +155,15 @@ def run_test(
             last_serial_log, encoding="utf-8"
         )
 
-        # Determine status for this attempt
-        if last_exit_code == 0:
-            status = "PASS"
-        elif last_exit_code == 42:
-            status = "FAIL"
-        else:
-            status = "ERROR"
+        last_result = evaluate(
+            test=test,
+            raw_output=last_serial_log,
+            exit_code=last_exit_code,
+            duration_s=last_duration,
+        )
 
         # One retry only on ERROR, never on FAIL or PASS
-        if status != "ERROR" or attempt == max_runs - 1:
-            break
+        if last_result.status != "ERROR" or attempt == max_runs - 1:
+            return last_result
 
-    observed = extract_observed_lines(last_serial_log)
-
-    return TestResult(
-        test_id=test.id,
-        status=status,  # type: ignore
-        exit_code=last_exit_code,
-        duration_s=round(last_duration, 2),
-        expected=[e.serial_contains for e in test.expect],
-        observed_lines=observed,
-        serial_log=last_serial_log,
-        violated_must_not=[],
-        error_message=(
-            f"Simulator exited with code {last_exit_code}"
-            if status == "ERROR"
-            else None
-        ),
-    )
+    return last_result  # type: ignore
