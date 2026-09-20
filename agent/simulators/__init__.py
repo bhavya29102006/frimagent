@@ -1,6 +1,7 @@
 """Simulators package for FirmAgent."""
 
 from agent.simulators.base import BaseSimulator
+from agent.simulators.gazebo_sim import GazeboSimulator
 from agent.simulators.mock_sim import VirtualMockSimulator
 from agent.simulators.native_sim import NativeHostSimulator
 from agent.simulators.python_sim import PythonSimulator
@@ -18,6 +19,7 @@ __all__ = [
     "VirtualMockSimulator",
     "NativeHostSimulator",
     "PythonSimulator",
+    "GazeboSimulator",
     "get_simulator",
     "list_available_simulators",
     "register_simulator",

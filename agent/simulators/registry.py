@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from agent.simulators.base import BaseSimulator
+from agent.simulators.gazebo_sim import GazeboSimulator
 from agent.simulators.mock_sim import VirtualMockSimulator
 from agent.simulators.native_sim import NativeHostSimulator
 from agent.simulators.python_sim import PythonSimulator
@@ -15,6 +16,7 @@ _SIMULATORS: dict[str, BaseSimulator] = {
     "virtual_mock": VirtualMockSimulator(),
     "native_c": NativeHostSimulator(),
     "python_sim": PythonSimulator(),
+    "gazebo": GazeboSimulator(),
 }
 
 

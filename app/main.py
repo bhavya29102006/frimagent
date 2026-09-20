@@ -329,6 +329,18 @@ if FIRMWARE_SRC_FILE.is_file():
 
 
 
+def calculate_dynamic_test_count(analysis: FirmwareAnalysis) -> int:
+    """Determine dynamic target test count based on firmware specification rules.
+
+    Instead of hardcoding 16 for all devices, scales appropriately:
+    - 3-4 rules: 12-14 tests
+    - 5-6 rules: 15-18 tests
+    - 7+ rules: 18-22 tests
+    """
+    rule_count = len(analysis.spec_rules) if analysis and analysis.spec_rules else 4
+    return max(12, min(22, rule_count * 2 + 3))
+
+
 def is_internet_available(host: str = "8.8.8.8", port: int = 53, timeout: float = 1.5) -> bool:
     """Quick check for internet connectivity without throwing unhandled exceptions."""
     try:
@@ -483,9 +495,10 @@ def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_even
                 shared_state["done"] = True
                 return
 
-            shared_state["status"] = "2. Test Generation: Synthesizing test cases with Gemini..."
+            dyn_target = calculate_dynamic_test_count(analysis)
+            shared_state["status"] = f"2. Test Generation: Synthesizing test cases with Gemini ({dyn_target} tests)..."
             shared_state["progress"] = 25
-            tests = generate_tests(analysis, source_code, target_count=16)
+            tests = generate_tests(analysis, source_code, target_count=dyn_target)
             (dev_dir / "tests.json").write_text(
                 TestList(tests=tests).model_dump_json(indent=2),
                 encoding="utf-8",
@@ -617,18 +630,30 @@ with st.sidebar:
 
     # Multi-Simulator Selector
     sim_options = {
-        "wokwi": "Wokwi Hardware Simulator (Arduino Uno + Circuit)",
         "virtual_mock": "Universal Virtual Hardware Simulator (Zero-Dependency)",
-        "native_c": "Native C/C++ Host Runner (GCC/Clang)",
         "python_sim": "MicroPython / Embedded Python Runner",
+        "native_c": "Native C/C++ Host Runner (GCC/Clang)",
+        "wokwi": "Wokwi Hardware Simulator (Arduino Uno + Circuit)",
+        "gazebo": "Gazebo Robotics Simulator (3D Physics / ROS2)",
     }
     sim_keys = list(sim_options.keys())
+
+    # Determine optimal simulator based on active firmware language
+    def_sim = FIRMWARE_PRESETS.get(_active_fw_name, {}).get("default_sim", "virtual_mock")
+    if FIRMWARE_SRC_FILE.is_file() and FIRMWARE_SRC_FILE.suffix == ".py":
+        def_sim = "python_sim"
+    elif FIRMWARE_SRC_FILE.is_file() and FIRMWARE_SRC_FILE.suffix == ".c":
+        def_sim = "native_c"
+
     current_stored_sim = st.session_state.get("simulator_engine_choice")
     if current_stored_sim not in sim_keys:
-        def_sim = FIRMWARE_PRESETS.get(_active_fw_name, {}).get("default_sim", "wokwi")
         default_sim_idx = sim_keys.index(def_sim) if def_sim in sim_keys else 0
     else:
-        default_sim_idx = sim_keys.index(current_stored_sim)
+        # Auto-correct incompatible combinations (e.g. Wokwi on Python file)
+        if FIRMWARE_SRC_FILE.is_file() and FIRMWARE_SRC_FILE.suffix == ".py" and current_stored_sim == "wokwi":
+            default_sim_idx = sim_keys.index("python_sim")
+        else:
+            default_sim_idx = sim_keys.index(current_stored_sim)
 
     selected_sim_id = st.selectbox(
         "Simulator Engine",
@@ -688,7 +713,8 @@ with st.sidebar:
                 with st.spinner(f"Analyzing {FIRMWARE_DIR.name} & generating tests..."):
                     source_code = FIRMWARE_SRC_FILE.read_text(encoding="utf-8")
                     analysis = analyze_firmware(source_code)
-                    tests = generate_tests(analysis, source_code, target_count=16)
+                    dyn_target = calculate_dynamic_test_count(analysis)
+                    tests = generate_tests(analysis, source_code, target_count=dyn_target)
                     dev_dir = RUNS_DIR / "dev"
                     dev_dir.mkdir(parents=True, exist_ok=True)
                     (dev_dir / "analysis.json").write_text(
@@ -791,7 +817,13 @@ with tab_run:
         cached_record = get_firmware_cache(fw_content_current) if fw_content_current else None
         if cached_record is None and FIRMWARE_DIR.name:
             cached_record = get_firmware_cache_by_name(FIRMWARE_DIR.name)
-        current_sim_id = st.session_state.get("simulator_engine_choice", "wokwi")
+        current_sim_id = st.session_state.get("simulator_engine_choice", def_sim)
+        if det_lang == "python" and current_sim_id == "wokwi":
+            current_sim_id = "python_sim"
+            st.session_state["simulator_engine_choice"] = "python_sim"
+        elif det_lang == "c" and current_sim_id == "wokwi":
+            current_sim_id = "native_c"
+            st.session_state["simulator_engine_choice"] = "native_c"
 
         badge_c1, badge_c2 = st.columns(2)
         with badge_c1:
@@ -805,7 +837,8 @@ with tab_run:
         if cached_record is not None:
             col_msg, col_clr = st.columns([3, 1])
             with col_msg:
-                st.caption("⚡ *Analysis & 16-test suite are cached in `runs/firmagent.db`. Re-running will load instantly from SQLite with 0 Gemini calls.*")
+                t_count = len(cached_record.get('tests', []))
+                st.caption(f"⚡ *Analysis & {t_count}-test suite are locked in `runs/firmagent.db`. Re-running loads instantly from SQLite with 0 Gemini calls.*")
             with col_clr:
                 if st.button("🗑️ Invalidate Cache", key="clear_cache_btn", help="Evict from SQLite cache and force fresh LLM analysis."):
                     delete_firmware_cache(fw_content_current)

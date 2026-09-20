@@ -74,12 +74,29 @@ def run_test(
     Supports pluggable simulators: 'wokwi', 'virtual_mock', 'native_c', 'python_sim'.
     Defaults to 'wokwi'.
     """
-    if simulator_name and simulator_name != "wokwi":
+    fw_path = Path(firmware_dir).resolve()
+    hex_src = fw_path / ".pio" / "build" / "uno" / "firmware.hex"
+
+    # Intelligent Compatibility Guard:
+    # Wokwi requires compiled AVR binary (firmware.hex). If Wokwi is selected for Python, C,
+    # or firmware without compiled binaries, auto-route to native runtime or virtual hardware.
+    effective_sim = simulator_name or "wokwi"
+    if effective_sim == "wokwi":
+        is_python = any((fw_path / "src").glob("*.py")) if (fw_path / "src").is_dir() else any(fw_path.glob("*.py"))
+        is_c = any((fw_path / "src").glob("*.c")) if (fw_path / "src").is_dir() else any(fw_path.glob("*.c"))
+
+        if is_python:
+            effective_sim = "python_sim"
+        elif is_c and not hex_src.is_file():
+            effective_sim = "native_c"
+        elif not hex_src.is_file():
+            effective_sim = "virtual_mock"
+
+    if effective_sim != "wokwi":
         from agent.simulators.registry import get_simulator
-        sim = get_simulator(simulator_name)
+        sim = get_simulator(effective_sim)
         return sim.run_test(test=test, firmware_dir=firmware_dir, run_dir=run_dir)
 
-    fw_path = Path(firmware_dir).resolve()
     target_run_dir = Path(run_dir).resolve()
     temp_dir = target_run_dir / "sim" / test.id
     temp_dir.mkdir(parents=True, exist_ok=True)

@@ -164,3 +164,44 @@ def test_orchestrator_with_virtual_mock_simulator(tmp_path):
     assert manifest.total_tests == 2
     assert manifest.passed == 2
     assert manifest.failed == 0
+
+
+def test_gazebo_simulator_registration():
+    """Gazebo simulator is registered and available."""
+    from agent.simulators.registry import get_simulator
+    from agent.simulators.gazebo_sim import GazeboSimulator
+
+    sim = get_simulator("gazebo")
+    assert isinstance(sim, GazeboSimulator)
+    avail, msg = sim.is_available()
+    assert avail is True
+
+
+def test_runner_auto_routes_python_away_from_wokwi(tmp_path):
+    """When wokwi is selected on a Python firmware, runner auto-routes to python_sim."""
+    from agent.runner import run_test
+
+    fw_dir = tmp_path / "py_firmware"
+    (fw_dir / "src").mkdir(parents=True)
+    py_code = 'print("[DATA] temp=25.0 fan=OFF")\n'
+    (fw_dir / "src" / "main.py").write_text(py_code, encoding="utf-8")
+
+    test = TestCase(
+        id="T01",
+        name="Auto route test",
+        category="normal",
+        steps=[TestStep(set_temp=25.0)],
+        expect=[Expectation(serial_contains="temp=25.0 fan=OFF")],
+        rationale="Auto routing",
+    )
+
+    # Note: explicitly passing simulator_name="wokwi" to verify auto-routing away from wokwi
+    res = run_test(
+        test=test,
+        firmware_dir=fw_dir,
+        run_dir=tmp_path / "run",
+        simulator_name="wokwi",
+    )
+    assert res.status == "PASS"
+    assert res.exit_code == 0
+    assert any("temp=25.0 fan=OFF" in line for line in res.observed_lines)
