@@ -16,3 +16,5 @@
    successfully" and exits 0. A failing scenario prints "Timeout: simulation
    did not finish in Nms" and exits non-zero. Stdout contains the serial lines
    plus "Expected text matched" lines prefixed with the scenario name.
+      9. R2 clarified: with fan ON, at exactly 28.0 C the fan turns OFF (<= 28.0).
+      Above 28.0 it stays ON.

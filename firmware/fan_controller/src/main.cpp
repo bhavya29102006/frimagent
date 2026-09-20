@@ -3,7 +3,7 @@
  *
  * SPECIFICATION
  *  R1: Fan is ON when temperature >= 30.0 C.
- *  R2: Once ON, the fan stays ON until temperature <= 28.0 C (2 C hysteresis).
+ *  R2: Once ON, the fan turns OFF only when temperature <= 28.0 C (2 C hysteresis).
  *  R3: Fan is OFF at boot and stays OFF while temperature is below 30.0 C.
  *  R4: Temperature >= 60.0 C prints "[ALARM] OVERHEAT" and the fan is ON.
  *  R5: If the sensor read fails, print "[ERROR] SENSOR_FAIL" and turn the fan ON (fail-safe).
