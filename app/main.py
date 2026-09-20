@@ -160,6 +160,12 @@ FIRMWARE_PRESETS: dict[str, dict[str, Any]] = {
         "lang": "cpp",
         "default_sim": "virtual_mock",
     },
+    "ultrasonic_radar": {
+        "title": "📡 ultrasonic_radar (Arduino Uno + HC-SR04 + Servo)",
+        "desc": "Ultrasonic radar proximity scanner with servo sweep, distance telemetry & buzzer alarm.",
+        "lang": "cpp",
+        "default_sim": "virtual_mock",
+    },
     "custom_uploaded": {
         "title": "📁 custom_uploaded (Active User Upload Slot)",
         "desc": "Custom workspace slot for uploading and testing your own embedded C, C++, or Python firmware.",
@@ -830,6 +836,7 @@ with tab_run:
                     "4_water_tank_monitor.c": "water_tank_monitor",
                     "5_iot_weather_node.py": "iot_weather_node",
                     "6_broken_syntax_demo.cpp": "broken_syntax_demo",
+                    "7_ultrasonic_radar.cpp": "ultrasonic_radar",
                 }
                 if st.button("📥 Load Sample into Workspace", use_container_width=True, key="load_sample_btn"):
                     if sel_sample and sel_sample in local_samples:
@@ -887,6 +894,8 @@ with tab_run:
                                 "iot_weather": "iot_weather_node",
                                 "weather": "iot_weather_node",
                                 "broken_syntax": "broken_syntax_demo",
+                                "radar": "ultrasonic_radar",
+                                "ultrasonic": "ultrasonic_radar",
                             }
                             target_fw = "custom_uploaded"
                             for kw, proj in sample_to_project.items():
