@@ -1,0 +1,9 @@
+name: 'Fan must be ON at exactly 30.0 C (should FAIL: proves bug B1 is detectable)'
+version: 1
+steps:
+  - wait-serial: '[INFO] BOOT'
+  - set-control:
+      part-id: dht1
+      control: temperature
+      value: 30
+  - wait-serial: 'temp=30.0 fan=ON'

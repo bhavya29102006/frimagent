@@ -1,0 +1,7 @@
+streamlit
+google-genai
+pydantic
+pyyaml
+python-dotenv
+pytest
+platformio
