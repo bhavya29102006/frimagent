@@ -122,7 +122,7 @@ def evaluate(
             error_message = (
                 "inconsistent: exit 0 but no firmware serial lines were output"
             )
-        elif expected_strings and not seen_expected:
+        elif missing_expected:
             status = "FAIL"
             error_message = (
                 f"Expected serial output not observed: {missing_expected}"

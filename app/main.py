@@ -129,13 +129,13 @@ FIRMWARE_PRESETS: dict[str, dict[str, Any]] = {
         "title": "🌡️ fan_controller (Arduino Uno + DHT22 Fan)",
         "desc": "Arduino Uno thermostat fan with hysteresis & sensor disconnect fail-safe.",
         "lang": "cpp",
-        "default_sim": "wokwi",
+        "default_sim": "virtual_mock",
     },
     "incubator_controller": {
         "title": "🐣 incubator_controller (Arduino Uno + Heater Relay)",
         "desc": "Medical/poultry incubator maintaining 37.0°C with 40°C overheat alarm.",
         "lang": "cpp",
-        "default_sim": "wokwi",
+        "default_sim": "virtual_mock",
     },
     "smart_door_lock": {
         "title": "🔐 smart_door_lock (Arduino Uno + PIN Access Control)",

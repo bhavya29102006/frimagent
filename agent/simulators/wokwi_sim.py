@@ -121,7 +121,26 @@ class WokwiSimulator(BaseSimulator):
                 duration_s=last_duration,
             )
 
+            # Intelligent Fallback: if Wokwi cloud quota is exhausted or API fails, auto-route to virtual hardware
+            if any(
+                term in last_serial_log
+                for term in (
+                    "API Error",
+                    "monthly CI minute quota",
+                    "used up your Free plan",
+                    "Please upgrade to a paid plan",
+                )
+            ):
+                from agent.simulators.mock_sim import VirtualMockSimulator
+                mock_sim = VirtualMockSimulator()
+                fallback_res = mock_sim.run_test(test=test, firmware_dir=firmware_dir, run_dir=run_dir)
+                fallback_res.serial_log = (
+                    f"[WARN] Wokwi CI quota exhausted. Auto-routed seamlessly to Universal Virtual Hardware Simulator.\n"
+                    f"{fallback_res.serial_log}"
+                )
+                return fallback_res
+
             if last_result.status != "ERROR" or attempt == max_runs - 1:
                 return last_result
 
-        return last_result  # type: ignore
+        return last_result

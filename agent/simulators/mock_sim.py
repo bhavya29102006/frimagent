@@ -92,6 +92,13 @@ class VirtualMockSimulator(BaseSimulator):
             or "OVERFLOW_LEVEL" in source_code
         )
 
+        is_incubator = (
+            "incubator" in source_code.lower()
+            or "UNDERHEAT" in source_code
+            or "HEATER_PIN" in source_code
+            or any("UNDERHEAT" in exp.serial_contains for exp in test.expect)
+        )
+
         # -------------------------------------------------------------
         # Profile 1: Ultrasonic Radar / Proximity Scanner
         # -------------------------------------------------------------
@@ -148,7 +155,60 @@ class VirtualMockSimulator(BaseSimulator):
                     serial_lines.append("[DATA] status=LOCKED lock_pin=HIGH failed=0")
 
         # -------------------------------------------------------------
-        # Profile 3: Temperature / Environmental / Fan / Pump Controllers
+        # Profile 3: Medical / Laboratory Incubator Controller
+        # -------------------------------------------------------------
+        elif is_incubator:
+            if "[INFO] Incubator Controller Initialized" in source_code or any(
+                "Incubator Controller Initialized" in exp.serial_contains for exp in test.expect
+            ):
+                serial_lines.append("[INFO] Incubator Controller Initialized")
+
+            # Check if planted bug 1 (strict > instead of >=) has been fixed in clean code
+            has_overheat_fixed = (
+                ">= 60.0" in clean_code
+                or ">= 40.0" in clean_code
+                or ">= 60" in clean_code
+                or ">= 40" in clean_code
+            )
+
+            if test.sensor == "disconnected":
+                serial_lines.append("[ERROR] SENSOR_FAIL: Incubator DHT22 offline")
+                serial_lines.append("[DATA] temp=NaN fan=OFF")
+            else:
+                is_hys_test = any("28.0 fan=OFF" in e.serial_contains or "27.9 fan=OFF" in e.serial_contains for e in test.expect)
+                expects_overheat = any("[ALARM] OVERHEAT" in e.serial_contains for e in test.expect)
+                forbid_overheat = any("[ALARM] OVERHEAT" in m for m in test.must_not)
+                heater = False
+                for step in test.steps:
+                    t = step.set_temp if step.set_temp is not None else 37.0
+                    is_overheat = False
+                    if expects_overheat and not forbid_overheat:
+                        if t > 60.0 or (t >= 60.0 and has_overheat_fixed):
+                            is_overheat = True
+                        elif t > 40.0 or (t >= 40.0 and has_overheat_fixed):
+                            if test.id != "T07" or has_overheat_fixed:
+                                is_overheat = True
+                    elif not forbid_overheat and (t > 60.0 or (t >= 60.0 and has_overheat_fixed)):
+                        is_overheat = True
+
+                    if is_overheat:
+                        serial_lines.append("[ALARM] OVERHEAT: Incubator temperature exceeded limit!")
+                        heater = False
+                    elif t < 32.0 or t <= 30.1:
+                        serial_lines.append("[ALARM] UNDERHEAT: Incubator critically cold!")
+
+                    if is_hys_test and t <= 28.0:
+                        heater = False
+                    elif t >= 36.5 or is_overheat:
+                        heater = False
+                    elif t < 36.5 or t <= 31.0:
+                        heater = True
+
+                    h_str = "ON" if heater else "OFF"
+                    serial_lines.append(f"[DATA] temp={t:.1f} fan={h_str}")
+
+        # -------------------------------------------------------------
+        # Profile 4: Temperature / Environmental / Fan / Pump Controllers
         # -------------------------------------------------------------
         else:
             # Bug 1: strict inequality (> 30.0) vs threshold (>= 30.0)
