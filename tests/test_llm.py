@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock
 import hashlib
+import json
 import pytest
 from pydantic import BaseModel, ValidationError
 
@@ -11,6 +12,11 @@ from agent.llm import generate_json, get_gemini_config
 class DummyModel(BaseModel):
     ok: bool
     name: str = "default"
+
+
+class AnotherModel(BaseModel):
+    ok: bool
+    count: int = 0
 
 
 @pytest.fixture(autouse=True)
@@ -33,7 +39,7 @@ def test_missing_api_key_raises_error(monkeypatch):
 
 
 def test_generate_json_success(tmp_path):
-    """generate_json parses valid JSON response into schema_model."""
+    """generate_json parses valid JSON response into schema_model and injects schema into prompt."""
     mock_client = MagicMock()
     mock_client.models.generate_content.return_value = MockResponse(
         '{"ok": true, "name": "firmagent"}'
@@ -53,52 +59,28 @@ def test_generate_json_success(tmp_path):
     assert result.name == "firmagent"
     assert mock_client.models.generate_content.call_count == 1
 
+    # Verify prompt contains schema instructions and no response_schema in config
+    call_args = mock_client.models.generate_content.call_args
+    prompt_sent = call_args.kwargs["contents"]
+    config_sent = call_args.kwargs["config"]
 
-def test_generate_json_disk_cache_hit(tmp_path):
-    """Subsequent call with identical prompt hits disk cache and avoids LLM call."""
+    assert (
+        "Return ONLY valid JSON matching this schema. No markdown." in prompt_sent
+    )
+    assert '"ok"' in prompt_sent
+    assert config_sent.response_mime_type == "application/json"
+    assert getattr(config_sent, "response_schema", None) is None
+
+
+def test_generate_json_fenced_markdown_stripped(tmp_path):
+    """Markdown code fences (```json ... ```) are cleanly stripped."""
     mock_client = MagicMock()
     mock_client.models.generate_content.return_value = MockResponse(
-        '{"ok": true, "name": "cached_run"}'
+        "```json\n{\n  \"ok\": true,\n  \"name\": \"fenced_test\"\n}\n```"
     )
-
-    # First call: populates cache
-    res1 = generate_json(
-        prompt="Cache test prompt",
-        schema_model=DummyModel,
-        client=mock_client,
-        model="gemini-test",
-        cache_dir=tmp_path,
-        use_cache=True,
-    )
-    assert res1.name == "cached_run"
-    assert mock_client.models.generate_content.call_count == 1
-
-    # Second call: should hit cache
-    res2 = generate_json(
-        prompt="Cache test prompt",
-        schema_model=DummyModel,
-        client=mock_client,
-        model="gemini-test",
-        cache_dir=tmp_path,
-        use_cache=True,
-    )
-    assert res2.name == "cached_run"
-    # Call count remains 1 because cache was hit
-    assert mock_client.models.generate_content.call_count == 1
-
-
-def test_generate_json_repair_retry(tmp_path):
-    """When first response fails validation, one repair retry is attempted with the error."""
-    mock_client = MagicMock()
-    # 1st attempt: invalid (missing required 'ok' field)
-    # 2nd attempt: valid
-    mock_client.models.generate_content.side_effect = [
-        MockResponse('{"invalid_field": 123}'),
-        MockResponse('{"ok": true, "name": "repaired"}'),
-    ]
 
     result = generate_json(
-        prompt="Generate dummy",
+        prompt="Fenced test",
         schema_model=DummyModel,
         client=mock_client,
         model="gemini-test",
@@ -107,15 +89,83 @@ def test_generate_json_repair_retry(tmp_path):
     )
 
     assert result.ok is True
-    assert result.name == "repaired"
+    assert result.name == "fenced_test"
+
+
+def test_generate_json_invalid_then_valid_repair(tmp_path):
+    """When first response returns invalid JSON, repair retry passes validation error and succeeds."""
+    mock_client = MagicMock()
+    # 1st attempt: invalid JSON missing 'ok'
+    # 2nd attempt: fenced valid JSON
+    mock_client.models.generate_content.side_effect = [
+        MockResponse('```json\n{"wrong_field": "bad"}\n```'),
+        MockResponse('```json\n{"ok": true, "name": "repaired_success"}\n```'),
+    ]
+
+    result = generate_json(
+        prompt="Repair prompt test",
+        schema_model=DummyModel,
+        client=mock_client,
+        model="gemini-test",
+        cache_dir=tmp_path,
+        use_cache=False,
+    )
+
+    assert result.ok is True
+    assert result.name == "repaired_success"
     assert mock_client.models.generate_content.call_count == 2
 
-    # Verify repair prompt contained previous output and error
-    second_call_prompt = (
+    second_prompt = (
         mock_client.models.generate_content.call_args_list[1].kwargs["contents"]
     )
-    assert "VALIDATION ERROR" in second_call_prompt
-    assert "PREVIOUS ATTEMPT OUTPUT" in second_call_prompt
+    assert "VALIDATION ERROR" in second_prompt
+    assert "PREVIOUS ATTEMPT OUTPUT" in second_prompt
+    assert "wrong_field" in second_prompt
+
+
+def test_generate_json_disk_cache_includes_schema_key(tmp_path):
+    """Cache key distinguishes between different schemas for the same prompt."""
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = [
+        MockResponse('{"ok": true, "name": "first_schema"}'),
+        MockResponse('{"ok": true, "count": 42}'),
+    ]
+
+    # Call with DummyModel
+    res1 = generate_json(
+        prompt="Common prompt",
+        schema_model=DummyModel,
+        client=mock_client,
+        model="gemini-test",
+        cache_dir=tmp_path,
+        use_cache=True,
+    )
+    assert res1.name == "first_schema"
+    assert mock_client.models.generate_content.call_count == 1
+
+    # Call again with same prompt and DummyModel -> hits cache
+    res1_cached = generate_json(
+        prompt="Common prompt",
+        schema_model=DummyModel,
+        client=mock_client,
+        model="gemini-test",
+        cache_dir=tmp_path,
+        use_cache=True,
+    )
+    assert res1_cached.name == "first_schema"
+    assert mock_client.models.generate_content.call_count == 1
+
+    # Call with same prompt but AnotherModel -> does NOT hit cache for DummyModel
+    res2 = generate_json(
+        prompt="Common prompt",
+        schema_model=AnotherModel,
+        client=mock_client,
+        model="gemini-test",
+        cache_dir=tmp_path,
+        use_cache=True,
+    )
+    assert res2.count == 42
+    assert mock_client.models.generate_content.call_count == 2
 
 
 def test_generate_json_rate_limit_backoff(tmp_path, monkeypatch):
@@ -130,7 +180,6 @@ def test_generate_json_rate_limit_backoff(tmp_path, monkeypatch):
         MockResponse('{"ok": true, "name": "after_backoff"}'),
     ]
 
-    # Speed up sleep during tests
     monkeypatch.setattr("time.sleep", lambda s: None)
 
     result = generate_json(
@@ -224,7 +273,9 @@ def test_cache_works_offline_without_api_key(tmp_path, monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
     prompt = "Offline cached prompt"
-    prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    schema_key_str = json.dumps(DummyModel.model_json_schema(), sort_keys=True)
+    cache_payload = f"{prompt}\n{schema_key_str}"
+    prompt_hash = hashlib.sha256(cache_payload.encode("utf-8")).hexdigest()
     cache_file = tmp_path / f"{prompt_hash}.json"
     cache_file.write_text('{"ok": true, "name": "offline_cached"}', encoding="utf-8")
 

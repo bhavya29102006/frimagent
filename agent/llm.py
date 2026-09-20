@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import TypeVar
 import hashlib
+import json
 import os
 import time
 from dotenv import load_dotenv
@@ -70,12 +71,11 @@ def _call_gemini_with_backoff(
     client: genai.Client,
     model: str,
     prompt: str,
-    schema_model: type[BaseModel] | None = None,
     max_attempts: int = 5,
 ) -> str:
-    """Invoke Gemini with JSON output mode and exponential backoff for 503, 429, and timeouts.
+    """Invoke Gemini with response_mime_type='application/json' and exponential backoff.
 
-    Backoff sequence: 2s, 4s, 8s, 16s (max 5 attempts).
+    Backoff sequence: 2s, 4s, 8s, 16s (max 5 attempts) for 503, 429, and timeouts.
     If GEMINI_FALLBACK_MODEL is set, switches to that model after 3 failed attempts.
     Prints a short status message on each retry (never API keys).
     """
@@ -85,14 +85,12 @@ def _call_gemini_with_backoff(
     delays = [2, 4, 8, 16]
 
     for attempt in range(max_attempts):
-        # After 3 failed attempts (attempts 0, 1, 2 failed), switch to fallback model if configured
         if attempt >= 3 and fallback_model:
             current_model = fallback_model
 
         try:
             config = types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=schema_model,
             )
             response = client.models.generate_content(
                 model=current_model,
@@ -123,8 +121,11 @@ def generate_json(
     """Generate structured JSON from Gemini and validate against schema_model.
 
     Features:
-    - JSON output mode via response_mime_type and response_schema.
-    - Disk cache in runs/cache/ keyed by SHA-256 hash of the prompt.
+    - Injects schema_model.model_json_schema() into prompt.
+    - Uses response_mime_type='application/json' without passing response_schema
+      (avoiding additionalProperties errors on Developer API mode).
+    - Strips markdown code fences if present, then parses and validates with Pydantic.
+    - Disk cache in runs/cache/ keyed by SHA-256 hash of prompt + schema.
     - One automatic repair retry containing the Pydantic validation error.
     - Exponential backoff (2s, 4s, 8s, 16s, max 5 attempts) on 503, 429, timeouts.
     - Optional fallback model after 3 failures via GEMINI_FALLBACK_MODEL.
@@ -142,10 +143,22 @@ def generate_json(
         Validated instance of schema_model.
     """
     target_cache_dir = cache_dir if cache_dir is not None else DEFAULT_CACHE_DIR
-    prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+
+    # 1. Build prompt with embedded JSON schema
+    schema_json_str = json.dumps(schema_model.model_json_schema(), indent=2)
+    full_prompt = (
+        f"{prompt}\n\n"
+        f"JSON SCHEMA:\n"
+        f"{schema_json_str}\n\n"
+        f"Return ONLY valid JSON matching this schema. No markdown."
+    )
+
+    # 2. Check disk cache (includes schema in the hash key)
+    schema_key_str = json.dumps(schema_model.model_json_schema(), sort_keys=True)
+    cache_payload = f"{prompt}\n{schema_key_str}"
+    prompt_hash = hashlib.sha256(cache_payload.encode("utf-8")).hexdigest()
     cache_file = target_cache_dir / f"{prompt_hash}.json"
 
-    # 1. Check disk cache (works offline without network or keys)
     if use_cache and cache_file.is_file():
         try:
             cached_text = cache_file.read_text(encoding="utf-8")
@@ -154,7 +167,7 @@ def generate_json(
             # Corrupted cache file, proceed with live call
             pass
 
-    # 2. Prepare client and model
+    # 3. Prepare client and model
     if client is None or model is None:
         env_key, env_model = get_gemini_config()
         if client is None:
@@ -162,35 +175,33 @@ def generate_json(
         if model is None:
             model = env_model
 
-    # 3. Call Gemini
+    # 4. Call Gemini
     raw_text = _call_gemini_with_backoff(
         client=client,
         model=model,
-        prompt=prompt,
-        schema_model=schema_model,
+        prompt=full_prompt,
     )
     cleaned = _strip_json_fences(raw_text)
 
-    # 4. Validate with Pydantic; repair retry if validation fails
+    # 5. Validate with Pydantic; repair retry if validation fails
     try:
         validated = schema_model.model_validate_json(cleaned)
-    except ValidationError as val_err:
+    except (ValidationError, ValueError) as val_err:
         repair_prompt = (
-            f"{prompt}\n\n"
+            f"{full_prompt}\n\n"
             f"PREVIOUS ATTEMPT OUTPUT:\n{raw_text}\n\n"
             f"VALIDATION ERROR:\n{val_err}\n\n"
-            f"Please fix the error and output only valid JSON matching the schema."
+            f"Please fix the error and return ONLY valid JSON matching the schema. No markdown."
         )
         repaired_raw = _call_gemini_with_backoff(
             client=client,
             model=model,
             prompt=repair_prompt,
-            schema_model=schema_model,
         )
         repaired_cleaned = _strip_json_fences(repaired_raw)
         validated = schema_model.model_validate_json(repaired_cleaned)
 
-    # 5. Store in disk cache
+    # 6. Store in disk cache
     if use_cache:
         target_cache_dir.mkdir(parents=True, exist_ok=True)
         cache_file.write_text(validated.model_dump_json(indent=2), encoding="utf-8")
