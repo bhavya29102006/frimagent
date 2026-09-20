@@ -1,18 +1,23 @@
 """FirmAgent — Streamlit Application Entrypoint.
 
-5-tab UI adhering to docs/04_UI_UX_BRIEF.md and docs/03_APP_FLOW.md:
-1. Run: Autonomous one-click test execution with progress stepper.
-2. Analysis: Firmware analysis, spec rules oracle, and risk areas.
+5-tab UI adhering to docs/04_UI_UX_BRIEF.md, docs/03_APP_FLOW.md, and TASK-021:
+1. Run: Autonomous one-click test execution with progress stepper, live spinner, stop button, summary banner.
+2. Analysis: Firmware analysis, spec rules oracle, and risk areas with friendly empty states.
 3. Tests: Generated test suite grouped by category with plain-words steps.
-4. Live Execution: Master-detail test inspector, serial log viewer, and re-run single test.
+4. Live Execution: Master-detail test inspector, serial log viewer, re-run single test, and ERROR warning rows.
 5. Report: Executive metric cards, coverage matrix, bug findings with suggested fixes, and downloads.
 """
 
+from datetime import datetime
 import html
 import json
 from pathlib import Path
+import socket
 import sys
+import threading
 import time
+import traceback
+from typing import Any, Optional
 import pandas as pd
 import streamlit as st
 
@@ -46,7 +51,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS for dark technical styling
+# Custom CSS for dark technical styling, accessible badges, and monospace >=13px logs
 st.markdown(
     """
     <style>
@@ -67,6 +72,14 @@ st.markdown(
     .badge-pass { background: rgba(34, 197, 94, 0.2); color: #22C55E; border: 1px solid #22C55E; }
     .badge-fail { background: rgba(239, 68, 68, 0.2); color: #EF4444; border: 1px solid #EF4444; }
     .badge-err  { background: rgba(245, 158, 11, 0.2); color: #F59E0B; border: 1px solid #F59E0B; }
+    .badge-stop { background: rgba(148, 163, 184, 0.2); color: #94A3B8; border: 1px solid #94A3B8; }
+
+    /* Enforce monospace font and at least 13px for all serial logs and code blocks */
+    pre, code, .stCodeBlock, .stCodeBlock code, textarea {
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace !important;
+        font-size: 13px !important;
+        line-height: 1.5 !important;
+    }
     </style>
 """,
     unsafe_allow_html=True,
@@ -77,6 +90,74 @@ FIRMWARE_SRC_FILE = (
 )
 FIRMWARE_DIR = PROJECT_ROOT / "firmware" / "fan_controller"
 RUNS_DIR = PROJECT_ROOT / "runs"
+
+
+def is_internet_available(host: str = "8.8.8.8", port: int = 53, timeout: float = 1.5) -> bool:
+    """Quick check for internet connectivity without throwing unhandled exceptions."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect((host, port))
+        s.close()
+        return True
+    except Exception:
+        return False
+
+
+def log_ui_error(run_id: str, action: str, exc: Exception) -> Path:
+    """Log full technical exception traceback to runs/<run_id>/error.log."""
+    err_dir = RUNS_DIR / run_id
+    err_dir.mkdir(parents=True, exist_ok=True)
+    log_file = err_dir / "error.log"
+    try:
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now().isoformat()}] Error during '{action}':\n")
+            f.write(traceback.format_exc())
+            f.write("\n" + "=" * 60 + "\n")
+    except Exception:
+        pass
+    return log_file
+
+
+def classify_error(exc: Exception) -> tuple[str, str]:
+    """Convert an exception into a user-friendly (cause, hint) tuple with no traceback."""
+    msg = str(exc)
+    err_type = type(exc).__name__
+
+    if "429" in msg or "RESOURCE_EXHAUSTED" in msg or "rate limit" in msg.lower():
+        return (
+            "Gemini API rate limit reached (429)",
+            "The model quota is temporarily exhausted. Please wait a few seconds before retrying.",
+        )
+    if "503" in msg or "UNAVAILABLE" in msg or "overloaded" in msg.lower():
+        return (
+            "Gemini service temporarily unavailable (503)",
+            "Google AI service is experiencing high load. FirmAgent will retry automatically, or you can try again shortly.",
+        )
+    if "API_KEY_INVALID" in msg or "API key not valid" in msg or "GEMINI_API_KEY" in msg:
+        return (
+            "Missing or invalid Gemini API key",
+            "Please verify that GEMINI_API_KEY is correctly set in your .env file.",
+        )
+    if "WOKWI_CLI_TOKEN" in msg or ("token" in msg.lower() and "wokwi" in msg.lower()):
+        return (
+            "Wokwi CLI authentication error",
+            "Ensure WOKWI_CLI_TOKEN is set in your .env file from wokwi.com/ci.",
+        )
+    if "wokwi-cli" in msg.lower() or ("FileNotFoundError" in err_type and "wokwi" in msg.lower()):
+        return (
+            "Wokwi CLI executable not found",
+            "Install Wokwi CLI or configure WOKWI_CLI_PATH in your .env file.",
+        )
+    if "ConnectionError" in err_type or "socket" in msg.lower() or "Failed to establish a new connection" in msg:
+        return (
+            "No internet connection detected",
+            "You are offline. Switch to Replay mode using 'Load golden run' in the sidebar.",
+        )
+    return (
+        f"{err_type}: {msg[:100]}",
+        "Technical diagnostics have been written to error.log in the active run folder.",
+    )
 
 
 def get_available_runs() -> list[str]:
@@ -106,6 +187,108 @@ def format_steps_plain(test: TestCase) -> str:
     return " ➔ ".join(parts)
 
 
+def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_event: threading.Event) -> None:
+    """Run the 5-step testing pipeline in a background thread with live state reporting."""
+    try:
+        shared_state["status"] = "1. Build & Spec: Checking firmware source..."
+        shared_state["progress"] = 10
+
+        dev_dir = RUNS_DIR / "dev"
+        dev_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Ensure Analysis and Tests exist
+        if (
+            not (dev_dir / "analysis.json").is_file()
+            or not (dev_dir / "tests.json").is_file()
+        ):
+            shared_state["status"] = "1. Build & Spec: Analyzing firmware with Gemini..."
+            shared_state["progress"] = 15
+            source_code = FIRMWARE_SRC_FILE.read_text(encoding="utf-8")
+            analysis = analyze_firmware(source_code)
+            (dev_dir / "analysis.json").write_text(
+                analysis.model_dump_json(indent=2), encoding="utf-8"
+            )
+
+            if stop_event.is_set():
+                shared_state["status"] = "Run stopped after analysis."
+                shared_state["done"] = True
+                return
+
+            shared_state["status"] = "2. Test Generation: Synthesizing test cases..."
+            shared_state["progress"] = 25
+            tests = generate_tests(analysis, source_code)
+            (dev_dir / "tests.json").write_text(
+                TestList(tests=tests).model_dump_json(indent=2),
+                encoding="utf-8",
+            )
+
+        if stop_event.is_set():
+            shared_state["status"] = "Run stopped before simulation."
+            shared_state["done"] = True
+            return
+
+        # 2. Run simulation
+        shared_state["status"] = "3. Wokwi Simulation: Initializing virtual hardware..."
+        shared_state["progress"] = 30
+
+        def on_sim_event(ev: dict[str, Any]) -> None:
+            if ev.get("type") == "test_started":
+                idx = ev.get("index", 1)
+                tot = ev.get("total", 1)
+                tid = ev.get("test_id", "")
+                shared_state["status"] = f"3. Wokwi Simulation: Running [{idx}/{tot}] {tid}..."
+                pct = int(30 + ((idx - 1) / max(1, tot)) * 45)
+                shared_state["progress"] = min(pct, 75)
+            elif ev.get("type") == "test_finished":
+                idx = ev.get("index", 1)
+                tot = ev.get("total", 1)
+                tid = ev.get("test_id", "")
+                res = ev.get("result")
+                status = res.status if res else "DONE"
+                pct = int(30 + (idx / max(1, tot)) * 45)
+                shared_state["progress"] = min(pct, 75)
+                shared_state["status"] = f"3. Wokwi Simulation: [{idx}/{tot}] {tid} -> {status}"
+            elif ev.get("type") == "followup_started":
+                shared_state["status"] = f"3. Follow-up: Probing failures with {ev.get('count')} tests..."
+
+        manifest = run_all(
+            run_id=run_id,
+            source_dir=dev_dir,
+            firmware_dir=FIRMWARE_DIR,
+            on_event=on_sim_event,
+            stop_event=stop_event,
+            enable_followup=True,
+        )
+        new_run_dir = RUNS_DIR / manifest.run_id
+
+        # 3. Root Cause Analysis (only if not stopped and has failures)
+        if not stop_event.is_set() and manifest.status != "stopped" and manifest.failed > 0:
+            shared_state["status"] = "4. Root Cause: Diagnosing bugs with Gemini..."
+            shared_state["progress"] = 80
+            try:
+                run_root_cause(run_dir=new_run_dir)
+            except Exception as rc_exc:
+                log_ui_error(manifest.run_id, "root_cause", rc_exc)
+
+        # 4. Generate Reports (even if stopped, generate partial report)
+        shared_state["status"] = "5. Final Report: Compiling Markdown and HTML reports..."
+        shared_state["progress"] = 95
+        try:
+            generate_reports(run_dir=new_run_dir)
+        except Exception as rep_exc:
+            log_ui_error(manifest.run_id, "generate_reports", rep_exc)
+
+        shared_state["progress"] = 100
+        shared_state["manifest"] = manifest
+        shared_state["status"] = "Complete" if manifest.status != "stopped" else "Stopped"
+        shared_state["done"] = True
+
+    except Exception as exc:
+        log_ui_error(run_id, "pipeline", exc)
+        shared_state["error"] = exc
+        shared_state["done"] = True
+
+
 # ==========================================
 # Sidebar: Settings, Preflight & Run Selection
 # ==========================================
@@ -116,15 +299,24 @@ with st.sidebar:
     # Preflight Panel
     with st.expander("🛠 Preflight Checks", expanded=True):
         checks = run_preflight()
-        all_ok = True
+        preflight_ok = all(check.ok for check in checks)
+        failed_checks = [c for c in checks if not c.ok]
+
         for check in checks:
             if check.ok:
                 st.markdown(f"✅ **{check.name}** (`{check.detail}`)")
             else:
-                all_ok = False
                 st.markdown(f"❌ **{check.name}** (`{check.detail}`)")
                 if check.hint:
                     st.caption(f"💡 {check.hint}")
+
+        # Internet check
+        online = is_internet_available()
+        if online:
+            st.markdown("✅ **Internet Connection** (`online`)")
+        else:
+            st.markdown("❌ **Internet Connection** (`offline`)")
+            st.caption("💡 Switch to Replay mode (Load golden run) for offline testing.")
 
     st.divider()
     st.subheader("Configuration")
@@ -153,36 +345,49 @@ with st.sidebar:
     if selected_run_opt != "(New Autonomous Run)":
         st.session_state["active_run_id"] = selected_run_opt
 
-    # Golden Run button
+    # Golden Run button (Always enabled per TASK-021)
     golden_dir = RUNS_DIR / "golden"
     if golden_dir.is_dir():
         if st.button("🌟 Load Golden Run (Replay)", use_container_width=True):
-            st.session_state["active_run_id"] = "golden"
-            st.rerun()
+            try:
+                st.session_state["active_run_id"] = "golden"
+                st.success("Loaded Golden Run.")
+                st.rerun()
+            except Exception as exc:
+                log_ui_error("golden", "load_golden", exc)
+                cause, hint = classify_error(exc)
+                st.error(f"❌ Failed to load golden run: {cause}. 💡 *Hint:* {hint}")
 
     st.divider()
-    if st.button("🔄 Regenerate Analysis & Tests", use_container_width=True):
+    regen_disabled = not preflight_ok or st.session_state.get("pipeline_running", False)
+    if st.button("🔄 Regenerate Analysis & Tests", use_container_width=True, disabled=regen_disabled):
         if not FIRMWARE_SRC_FILE.is_file():
             st.error("Firmware source file not found.")
         else:
-            with st.spinner("Analyzing firmware & generating tests..."):
-                source_code = FIRMWARE_SRC_FILE.read_text(encoding="utf-8")
-                analysis = analyze_firmware(source_code)
-                tests = generate_tests(analysis, source_code)
-                dev_dir = RUNS_DIR / "dev"
-                dev_dir.mkdir(parents=True, exist_ok=True)
-                (dev_dir / "analysis.json").write_text(
-                    analysis.model_dump_json(indent=2), encoding="utf-8"
-                )
-                (dev_dir / "tests.json").write_text(
-                    TestList(tests=tests).model_dump_json(indent=2),
-                    encoding="utf-8",
-                )
-                st.session_state["active_run_id"] = "dev"
-                st.success(
-                    f"Generated {len(analysis.spec_rules)} rules & {len(tests)} tests!"
-                )
-                st.rerun()
+            try:
+                with st.spinner("Analyzing firmware & generating tests..."):
+                    source_code = FIRMWARE_SRC_FILE.read_text(encoding="utf-8")
+                    analysis = analyze_firmware(source_code)
+                    tests = generate_tests(analysis, source_code)
+                    dev_dir = RUNS_DIR / "dev"
+                    dev_dir.mkdir(parents=True, exist_ok=True)
+                    (dev_dir / "analysis.json").write_text(
+                        analysis.model_dump_json(indent=2), encoding="utf-8"
+                    )
+                    (dev_dir / "tests.json").write_text(
+                        TestList(tests=tests).model_dump_json(indent=2),
+                        encoding="utf-8",
+                    )
+                    st.session_state["active_run_id"] = "dev"
+                    st.success(
+                        f"Generated {len(analysis.spec_rules)} rules & {len(tests)} tests!"
+                    )
+                    time.sleep(1)
+                    st.rerun()
+            except Exception as exc:
+                log_ui_error("dev", "regenerate_tests", exc)
+                cause, hint = classify_error(exc)
+                st.error(f"❌ Analysis / Generation failed: {cause}\n\n💡 *Hint:* {hint}")
 
 
 # Determine Active Run Directory
@@ -192,11 +397,10 @@ if not active_run_dir.is_dir():
     active_run_dir = RUNS_DIR / "dev"
 
 
-# Helper to load JSON files from active run directory
 def load_run_file(filename: str):
+    """Safely load JSON file from active run directory or fallback to dev."""
     p = active_run_dir / filename
     if not p.is_file():
-        # Fallback to dev dir if file missing in active run
         dev_p = RUNS_DIR / "dev" / filename
         if dev_p.is_file():
             p = dev_p
@@ -235,12 +439,33 @@ with tab_run:
         "Execute the end-to-end testing loop: compile firmware, run tests in virtual Wokwi hardware simulation, diagnose root-cause bugs with Gemini, and compile reports."
     )
 
-    col_btn, col_info = st.columns([1, 2])
-    with col_btn:
-        start_run = st.button(
+    # Preflight Blocked State Warning (TASK-021 requirement 5)
+    if not preflight_ok:
+        st.error(
+            f"⚠️ **Simulation is disabled: {len(failed_checks)} preflight check(s) failed.**\n\n"
+            + "\n".join(f"- **{c.name}**: {c.hint or c.detail}" for c in failed_checks)
+            + "\n\n💡 *Hint:* You can still click **🌟 Load Golden Run (Replay)** in the sidebar to inspect a complete pre-recorded test run offline."
+        )
+
+    # Action Buttons: Run & Stop
+    col_start, col_stop = st.columns([2, 1])
+    is_running = st.session_state.get("pipeline_running", False)
+
+    with col_start:
+        start_btn = st.button(
             "🚀 Run Autonomous Test",
             type="primary",
             use_container_width=True,
+            disabled=not preflight_ok or is_running,
+            help="Resolve preflight issues above before starting a live simulation run." if not preflight_ok else None,
+        )
+
+    with col_stop:
+        stop_btn = st.button(
+            "⏹ Stop Run",
+            use_container_width=True,
+            disabled=not is_running,
+            help="Signals the simulation runner to stop after finishing the current test.",
         )
 
     # Progress Stepper Display
@@ -256,97 +481,150 @@ with tab_run:
         with col:
             st.info(f"**{lbl}**")
 
-    progress_placeholder = st.empty()
-    status_placeholder = st.empty()
+    # Handle Stop Click
+    if stop_btn:
+        if st.session_state.get("stop_event"):
+            st.session_state["stop_event"].set()
+            st.warning("⏹ **Stop requested:** The currently running test will finish, then the pipeline will stop and compile partial reports.")
 
-    if start_run:
-        status_placeholder.info(
-            "Starting autonomous execution pipeline. Please wait..."
-        )
-        progress_bar = progress_placeholder.progress(5)
-
-        # 1. Ensure Analysis and Tests exist
-        dev_dir = RUNS_DIR / "dev"
-        dev_dir.mkdir(parents=True, exist_ok=True)
-        if (
-            not (dev_dir / "analysis.json").is_file()
-            or not (dev_dir / "tests.json").is_file()
-        ):
-            status_placeholder.text("Analyzing firmware & generating tests...")
-            progress_bar.progress(15)
-            source_code = FIRMWARE_SRC_FILE.read_text(encoding="utf-8")
-            analysis = analyze_firmware(source_code)
-            tests = generate_tests(analysis, source_code)
-            (dev_dir / "analysis.json").write_text(
-                analysis.model_dump_json(indent=2), encoding="utf-8"
-            )
-            (dev_dir / "tests.json").write_text(
-                TestList(tests=tests).model_dump_json(indent=2),
-                encoding="utf-8",
-            )
-
-        # 2. Run All Tests in Wokwi Simulator
-        status_placeholder.text("Simulating tests in Wokwi virtual hardware...")
-        progress_bar.progress(30)
-
-        def on_sim_event(ev):
-            if ev.get("type") == "test_finished":
-                idx = ev.get("index", 1)
-                tot = ev.get("total", 1)
-                pct = int(30 + (idx / tot) * 45)
-                progress_bar.progress(min(pct, 75))
-                status_placeholder.text(
-                    f"Simulating [{idx}/{tot}] {ev.get('test_id')} - {ev.get('result').status}"
-                )
-            elif ev.get("type") == "followup_started":
-                status_placeholder.text(
-                    f"🔁 Autonomous follow-up round {ev.get('round')}: generated {ev.get('count')} probing tests..."
-                )
-
-        manifest = run_all(
-            source_dir=dev_dir,
-            firmware_dir=FIRMWARE_DIR,
-            on_event=on_sim_event,
-            enable_followup=True,
-        )
-        new_run_dir = RUNS_DIR / manifest.run_id
-
-        # 3. Root Cause Analysis
-        status_placeholder.text("Diagnosing root-cause bugs with Gemini...")
-        progress_bar.progress(80)
+    # Handle Start Click
+    if start_btn:
         try:
-            run_root_cause(run_dir=new_run_dir)
+            new_run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+            stop_evt = threading.Event()
+            st.session_state["stop_event"] = stop_evt
+            shared_data = {
+                "status": "Starting pipeline...",
+                "progress": 5,
+                "done": False,
+                "manifest": None,
+                "error": None,
+                "run_id": new_run_id,
+            }
+            st.session_state["pipeline_shared"] = shared_data
+            st.session_state["pipeline_running"] = True
+            pipe_thread = threading.Thread(
+                target=run_autonomous_pipeline,
+                args=(new_run_id, shared_data, stop_evt),
+                daemon=True,
+            )
+            pipe_thread.start()
+            st.session_state["pipeline_thread"] = pipe_thread
+            st.rerun()
         except Exception as exc:
-            st.warning(f"Root cause analysis warning: {exc}")
+            log_ui_error("pipeline_start", "start_pipeline", exc)
+            cause, hint = classify_error(exc)
+            st.error(f"❌ Could not start pipeline: {cause}\n\n💡 *Hint:* {hint}")
 
-        # 4. Generate Reports
-        status_placeholder.text("Compiling Markdown and HTML reports...")
-        progress_bar.progress(95)
-        try:
-            generate_reports(run_dir=new_run_dir)
-        except Exception as exc:
-            st.warning(f"Report generator warning: {exc}")
+    # Live Spinner & Progress Bar while Running
+    if is_running:
+        shared = st.session_state.get("pipeline_shared", {})
+        step_name = shared.get("status", "Executing pipeline...")
+        pct = shared.get("progress", 10)
 
-        progress_bar.progress(100)
-        status_placeholder.success(
-            f"✅ Autonomous run complete! Run ID: `{manifest.run_id}` | "
-            f"Passed: {manifest.passed} | Failed: {manifest.failed} | Errors: {manifest.errors}"
-        )
-        st.session_state["active_run_id"] = manifest.run_id
-        st.rerun()
+        with st.spinner(f"⏳ {step_name}"):
+            st.progress(pct)
+            st.caption(f"Status: **{step_name}**")
 
-    # If run directory exists, show summary card
+        if shared.get("done", False):
+            st.session_state["pipeline_running"] = False
+            run_id = shared.get("run_id")
+            if shared.get("error"):
+                exc = shared["error"]
+                cause, hint = classify_error(exc)
+                st.error(f"⚠️ **{cause}**\n\n💡 *Hint:* {hint} (Diagnostics written to `runs/{run_id}/error.log`)")
+            else:
+                st.session_state["active_run_id"] = run_id
+                time.sleep(0.5)
+                st.rerun()
+        else:
+            time.sleep(0.5)
+            st.rerun()
+
+    # Current Run Status & Summary Banner (TASK-021 requirement 7)
     manifest_data = load_run_file("manifest.json")
     if manifest_data:
+        try:
+            m = RunManifest.model_validate(manifest_data)
+            st.divider()
+
+            # Summary banner
+            if m.status == "stopped":
+                completed_cnt = m.passed + m.failed + m.errors
+                st.info(f"⏹ **Run stopped early: {completed_cnt} of {m.total_tests} tests completed, {m.failed} failure(s) found.**")
+            elif m.failed == 0 and m.errors == 0:
+                st.success(f"✅ **Run complete: {m.total_tests} tests executed, all passed (0 failures found).**")
+            else:
+                f_str = f"{m.failed} failure{'s' if m.failed != 1 else ''}"
+                e_str = f", {m.errors} simulator error{'s' if m.errors != 1 else ''}" if m.errors > 0 else ""
+                st.warning(f"⚠️ **Run complete: {m.total_tests} tests, {f_str}{e_str} found.**")
+
+            st.subheader(f"Current Run Status: `{active_run_dir.name}`")
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("Total Tests", m.total_tests)
+            c2.metric("Passed", f"✅ {m.passed}")
+            c3.metric("Failed", f"❌ {m.failed}")
+            c4.metric("Errors", f"⚠ {m.errors}")
+            status_icon = "✅" if m.status == "done" else ("⏹" if m.status == "stopped" else "⏳")
+            c5.metric("Status", f"{status_icon} {m.status.upper()}")
+
+            # Quick Re-run Section in Tab 1 (TASK-021 requirement 3)
+            tests_data = load_run_file("tests.json")
+            results_data = load_run_file("results.json")
+            if tests_data and results_data:
+                raw_t = tests_data.get("tests", []) if isinstance(tests_data, dict) else tests_data
+                t_objs = [TestCase.model_validate(t) for t in raw_t]
+                r_objs = [TestResult.model_validate(r) for r in results_data]
+                r_map = {r.test_id: r for r in r_objs}
+
+                with st.expander("🔄 Re-run Individual Test from this Run", expanded=False):
+                    opt_labels = []
+                    opt_map = {}
+                    for t in t_objs:
+                        res = r_map.get(t.id)
+                        stat = res.status if res else "NOT RUN"
+                        icon = "✅" if stat == "PASS" else ("❌" if stat == "FAIL" else ("⚠" if stat == "ERROR" else "⏳"))
+                        lbl = f"{icon} {t.id} - {t.name} ({stat})"
+                        opt_labels.append(lbl)
+                        opt_map[lbl] = t
+
+                    sel_opt = st.selectbox("Choose a test to re-run in simulator:", options=opt_labels, key="tab1_rerun_sel")
+                    if sel_opt and sel_opt in opt_map:
+                        target_t = opt_map[sel_opt]
+                        if st.button(f"🔄 Re-run this test ({target_t.id})", key="tab1_rerun_btn"):
+                            try:
+                                with st.spinner(f"Re-running {target_t.id} in Wokwi simulator..."):
+                                    rerun_res = run_test(test=target_t, firmware_dir=FIRMWARE_DIR, run_dir=active_run_dir)
+                                    r_map[target_t.id] = rerun_res
+                                    updated_results = [r_map.get(t.id, rerun_res) for t in t_objs]
+                                    (active_run_dir / "results.json").write_text(
+                                        json.dumps([r.model_dump() for r in updated_results], indent=2), encoding="utf-8"
+                                    )
+                                    m.passed = sum(1 for r in updated_results if r.status == "PASS")
+                                    m.failed = sum(1 for r in updated_results if r.status == "FAIL")
+                                    m.errors = sum(1 for r in updated_results if r.status == "ERROR")
+                                    (active_run_dir / "manifest.json").write_text(m.model_dump_json(indent=2), encoding="utf-8")
+                                    try:
+                                        generate_reports(active_run_dir)
+                                    except Exception:
+                                        pass
+                                    st.success(f"✅ Re-run complete for {target_t.id}: status is **{rerun_res.status}**.")
+                                    time.sleep(1)
+                                    st.rerun()
+                            except Exception as exc:
+                                log_ui_error(active_run_dir.name, f"tab1_rerun_{target_t.id}", exc)
+                                cause, hint = classify_error(exc)
+                                st.error(f"❌ Failed to re-run {target_t.id}: {cause}. 💡 *Hint:* {hint}")
+        except Exception as exc:
+            log_ui_error(active_run_dir.name, "tab1_render", exc)
+            cause, hint = classify_error(exc)
+            st.error(f"Error displaying run status: {cause}")
+    else:
         st.divider()
-        st.subheader(f"Current Run Status: `{active_run_dir.name}`")
-        m = RunManifest.model_validate(manifest_data)
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Total Tests", m.total_tests)
-        c2.metric("Passed", f"✅ {m.passed}")
-        c3.metric("Failed", f"❌ {m.failed}")
-        c4.metric("Errors", f"⚠ {m.errors}")
-        c5.metric("Status", m.status.upper())
+        st.info(
+            "ℹ️ **Welcome to FirmAgent!** Pick a target firmware above and click **🚀 Run Autonomous Test** to start the pipeline, "
+            "or click **🌟 Load Golden Run** in the sidebar to inspect pre-recorded results."
+        )
 
 
 # ==========================================
@@ -355,7 +633,11 @@ with tab_run:
 with tab_analysis:
     analysis_data = load_run_file("analysis.json")
     if not analysis_data:
-        st.info("No analysis data available. Run the pipeline in Tab 1.")
+        st.info(
+            "ℹ️ **No firmware analysis available yet.**\n\n"
+            "Pick a target firmware and click **🚀 Run Autonomous Test** in Tab 1 (or **🔄 Regenerate Analysis & Tests** in the sidebar) "
+            "to analyze firmware source code and extract specification rules."
+        )
     else:
         try:
             analysis = FirmwareAnalysis.model_validate(analysis_data)
@@ -406,7 +688,9 @@ with tab_analysis:
             for risk in analysis.risk_areas:
                 st.markdown(f"⚠️ **{risk}**")
         except Exception as exc:
-            st.error(f"Error displaying analysis: {exc}")
+            log_ui_error(active_run_dir.name, "tab2_analysis", exc)
+            cause, hint = classify_error(exc)
+            st.error(f"❌ Error displaying analysis: {cause}. 💡 *Hint:* {hint}")
 
 
 # ==========================================
@@ -415,7 +699,11 @@ with tab_analysis:
 with tab_tests:
     tests_data = load_run_file("tests.json")
     if not tests_data:
-        st.info("No test cases found. Run the pipeline in Tab 1.")
+        st.info(
+            "ℹ️ **No test cases generated yet.**\n\n"
+            "Pick a target firmware and click **🚀 Run Autonomous Test** in Tab 1 (or **🔄 Regenerate Analysis & Tests** in the sidebar) "
+            "to automatically synthesize targeted test cases."
+        )
     else:
         try:
             raw_list = (
@@ -452,7 +740,9 @@ with tab_tests:
                         hide_index=True,
                     )
         except Exception as exc:
-            st.error(f"Error displaying tests: {exc}")
+            log_ui_error(active_run_dir.name, "tab3_tests", exc)
+            cause, hint = classify_error(exc)
+            st.error(f"❌ Error displaying test suite: {cause}. 💡 *Hint:* {hint}")
 
 
 # ==========================================
@@ -464,142 +754,169 @@ with tab_live:
 
     if not tests_data or not results_data:
         st.info(
-            "Simulation results not yet available. Run the autonomous test in Tab 1."
+            "ℹ️ **No execution telemetry available yet.**\n\n"
+            "Pick a firmware and click **🚀 Run Autonomous Test** in Tab 1 to run tests in the Wokwi simulator, "
+            "or click **🌟 Load Golden Run** in the sidebar to inspect pre-recorded results."
         )
     else:
-        raw_tests = (
-            tests_data.get("tests", [])
-            if isinstance(tests_data, dict)
-            else tests_data
-        )
-        tests = [TestCase.model_validate(t) for t in raw_tests]
-        results = [TestResult.model_validate(r) for r in results_data]
-        res_map = {r.test_id: r for r in results}
+        try:
+            raw_tests = (
+                tests_data.get("tests", [])
+                if isinstance(tests_data, dict)
+                else tests_data
+            )
+            tests = [TestCase.model_validate(t) for t in raw_tests]
+            results = [TestResult.model_validate(r) for r in results_data]
+            res_map = {r.test_id: r for r in results}
 
-        # Master-Detail Layout
-        col_list, col_detail = st.columns([1, 2])
+            # Master-Detail Layout
+            col_list, col_detail = st.columns([1, 2])
 
-        with col_list:
-            st.markdown("### Tests")
-            filter_failures = st.checkbox("Only show failures (FAIL / ERROR)")
+            with col_list:
+                st.markdown("### Tests")
+                filter_failures = st.checkbox("Only show failures (FAIL / ERROR)")
 
-            labels = []
-            test_lookup = {}
-            for t in tests:
-                res = res_map.get(t.id)
-                status_str = res.status if res else "NOT_RUN"
-                if (
-                    filter_failures
-                    and res
-                    and res.status not in ("FAIL", "ERROR")
-                ):
-                    continue
-                icon = (
-                    "✅"
-                    if status_str == "PASS"
-                    else (
-                        "❌"
-                        if status_str == "FAIL"
-                        else ("⚠" if status_str == "ERROR" else "⏳")
+                labels = []
+                test_lookup = {}
+                for t in tests:
+                    res = res_map.get(t.id)
+                    status_str = res.status if res else "NOT_RUN"
+                    if (
+                        filter_failures
+                        and res
+                        and res.status not in ("FAIL", "ERROR")
+                    ):
+                        continue
+                    icon = (
+                        "✅"
+                        if status_str == "PASS"
+                        else (
+                            "❌"
+                            if status_str == "FAIL"
+                            else ("⚠" if status_str == "ERROR" else "⏳")
+                        )
                     )
-                )
-                followup_tag = (
-                    " [🔁 FOLLOW-UP]"
-                    if (t.category == "followup" or t.round > 0)
-                    else ""
-                )
-                label = f"{icon} {t.id} - {t.name}{followup_tag}"
-                labels.append(label)
-                test_lookup[label] = t
+                    followup_tag = (
+                        " [🔁 FOLLOW-UP]"
+                        if (t.category == "followup" or t.round > 0)
+                        else ""
+                    )
+                    label = f"{icon} {t.id} - {t.name}{followup_tag}"
+                    labels.append(label)
+                    test_lookup[label] = t
 
-            if not labels:
-                st.caption("No matching tests.")
-                selected_label = None
-            else:
-                selected_label = st.radio(
-                    "Select a test to inspect",
-                    options=labels,
-                    label_visibility="collapsed",
-                )
+                if not labels:
+                    st.caption("No matching tests.")
+                    selected_label = None
+                else:
+                    selected_label = st.radio(
+                        "Select a test to inspect",
+                        options=labels,
+                        label_visibility="collapsed",
+                    )
 
-        with col_detail:
-            if selected_label and selected_label in test_lookup:
-                sel_test = test_lookup[selected_label]
-                sel_res = res_map.get(sel_test.id)
+            with col_detail:
+                if selected_label and selected_label in test_lookup:
+                    sel_test = test_lookup[selected_label]
+                    sel_res = res_map.get(sel_test.id)
 
-                st.markdown(f"### {sel_test.id}: {sel_test.name}")
-                st.caption(
-                    f"Category: `{sel_test.category}` | Sensor: `{sel_test.sensor}` | Rationale: {sel_test.rationale}"
-                )
+                    st.markdown(f"### {sel_test.id}: {sel_test.name}")
+                    st.caption(
+                        f"Category: `{sel_test.category}` | Sensor: `{sel_test.sensor}` | Rationale: {sel_test.rationale}"
+                    )
 
-                if sel_res:
-                    # Status banner
-                    if sel_res.status == "PASS":
-                        st.success(
-                            f"**✅ PASS** (Duration: {sel_res.duration_s:.1f}s)"
-                        )
-                    elif sel_res.status == "FAIL":
-                        st.error(
-                            f"**❌ FAIL** — Expectation not satisfied (Duration: {sel_res.duration_s:.1f}s, Exit: {sel_res.exit_code})"
-                        )
-                    else:
-                        st.warning(
-                            f"**⚠ ERROR** — Simulator execution fault (Exit: {sel_res.exit_code})"
-                        )
-
-                    # Expected vs Observed
-                    c_exp, c_obs = st.columns(2)
-                    with c_exp:
-                        st.markdown("**Expected Serial Output:**")
-                        for exp in sel_res.expected:
-                            st.markdown(f"- `{exp}`")
-                    with c_obs:
-                        st.markdown("**Observed Firmware Output:**")
-                        collapsed = collapse_firmware_lines(
-                            sel_res.observed_lines
-                        )
-                        if collapsed:
-                            for line in collapsed:
-                                st.markdown(f"- `{line}`")
+                    if sel_res:
+                        # Status banner with icon & text (TASK-021 requirement 6 & 9)
+                        if sel_res.status == "PASS":
+                            st.success(
+                                f"**✅ PASS** (Duration: {sel_res.duration_s:.1f}s)"
+                            )
+                        elif sel_res.status == "FAIL":
+                            st.error(
+                                f"**❌ FAIL** — Expectation not satisfied (Duration: {sel_res.duration_s:.1f}s, Exit: {sel_res.exit_code})"
+                            )
                         else:
-                            st.caption("No firmware output observed.")
+                            st.warning(
+                                f"**⚠ ERROR** — Simulator execution fault (Exit: {sel_res.exit_code})"
+                            )
+                            if sel_res.error_message:
+                                st.caption(f"Fault detail: `{sel_res.error_message}`")
 
-                    if sel_res.missing_expected:
-                        st.error(
-                            f"Missing Expected Text: {', '.join(f'`{m}`' for m in sel_res.missing_expected)}"
-                        )
-                    if sel_res.violated_must_not:
-                        st.error(
-                            f"Violated Forbidden Strings: {', '.join(f'`{v}`' for v in sel_res.violated_must_not)}"
-                        )
+                        # Expected vs Observed
+                        c_exp, c_obs = st.columns(2)
+                        with c_exp:
+                            st.markdown("**Expected Serial Output:**")
+                            for exp in sel_res.expected:
+                                st.markdown(f"- `{exp}`")
+                        with c_obs:
+                            st.markdown("**Observed Firmware Output:**")
+                            collapsed = collapse_firmware_lines(
+                                sel_res.observed_lines
+                            )
+                            if collapsed:
+                                for line in collapsed:
+                                    st.markdown(f"- `{line}`")
+                            else:
+                                st.caption("No firmware output observed.")
 
-                    # Expandable raw serial log
-                    with st.expander("📜 Raw Simulator Serial Log"):
-                        st.code(
-                            sel_res.serial_log or "(no log)", language="text"
-                        )
+                        if sel_res.missing_expected:
+                            st.error(
+                                f"Missing Expected Text: {', '.join(f'`{m}`' for m in sel_res.missing_expected)}"
+                            )
+                        if sel_res.violated_must_not:
+                            st.error(
+                                f"Violated Forbidden Strings: {', '.join(f'`{v}`' for v in sel_res.violated_must_not)}"
+                            )
 
-                # Re-run button for this test
-                if st.button(f"🔄 Re-run {sel_test.id} in Simulator"):
-                    with st.spinner(f"Running {sel_test.id}..."):
-                        rerun_res = run_test(
-                            test=sel_test,
-                            firmware_dir=FIRMWARE_DIR,
-                            run_dir=active_run_dir,
-                        )
-                        # Update results on disk
-                        res_map[sel_test.id] = rerun_res
-                        new_results = [
-                            res_map.get(t.id, rerun_res) for t in tests
-                        ]
-                        (active_run_dir / "results.json").write_text(
-                            json.dumps(
-                                [r.model_dump() for r in new_results], indent=2
-                            ),
-                            encoding="utf-8",
-                        )
-                        st.success(f"Re-run complete: {rerun_res.status}")
-                        st.rerun()
+                        # Expandable raw serial log with monospace >=13px styling
+                        with st.expander("📜 Raw Simulator Serial Log"):
+                            st.code(
+                                sel_res.serial_log or "(no log)", language="text"
+                            )
+
+                    # Re-run button for this test (TASK-021 requirement 3)
+                    if st.button(f"🔄 Re-run this test ({sel_test.id})", key=f"rerun_{sel_test.id}"):
+                        try:
+                            with st.spinner(f"Running {sel_test.id} in simulator..."):
+                                rerun_res = run_test(
+                                    test=sel_test,
+                                    firmware_dir=FIRMWARE_DIR,
+                                    run_dir=active_run_dir,
+                                )
+                                res_map[sel_test.id] = rerun_res
+                                new_results = [
+                                    res_map.get(t.id, rerun_res) for t in tests
+                                ]
+                                (active_run_dir / "results.json").write_text(
+                                    json.dumps(
+                                        [r.model_dump() for r in new_results], indent=2
+                                    ),
+                                    encoding="utf-8",
+                                )
+                                manifest_obj = load_run_file("manifest.json")
+                                if manifest_obj:
+                                    m_model = RunManifest.model_validate(manifest_obj)
+                                    m_model.passed = sum(1 for r in new_results if r.status == "PASS")
+                                    m_model.failed = sum(1 for r in new_results if r.status == "FAIL")
+                                    m_model.errors = sum(1 for r in new_results if r.status == "ERROR")
+                                    (active_run_dir / "manifest.json").write_text(
+                                        m_model.model_dump_json(indent=2), encoding="utf-8"
+                                    )
+                                try:
+                                    generate_reports(active_run_dir)
+                                except Exception:
+                                    pass
+                                st.success(f"✅ Re-run complete for {sel_test.id}: status is **{rerun_res.status}**.")
+                                time.sleep(1)
+                                st.rerun()
+                        except Exception as exc:
+                            log_ui_error(active_run_dir.name, f"rerun_{sel_test.id}", exc)
+                            cause, hint = classify_error(exc)
+                            st.error(f"❌ Failed to re-run {sel_test.id}: {cause}. 💡 *Hint:* {hint}")
+        except Exception as exc:
+            log_ui_error(active_run_dir.name, "tab4_live", exc)
+            cause, hint = classify_error(exc)
+            st.error(f"❌ Error displaying live execution telemetry: {cause}. 💡 *Hint:* {hint}")
 
 
 # ==========================================
@@ -612,181 +929,200 @@ with tab_report:
     findings_data = load_run_file("findings.json")
 
     if not manifest_data or not results_data:
-        st.info("No report data available. Run the autonomous test in Tab 1.")
+        st.info(
+            "ℹ️ **No test report available yet.**\n\n"
+            "Run the autonomous test suite in Tab 1 or click **🌟 Load Golden Run** in the sidebar "
+            "to inspect executive metric cards, coverage matrices, and root-cause bug diagnoses."
+        )
     else:
-        manifest = RunManifest.model_validate(manifest_data)
-        raw_tests = (
-            tests_data.get("tests", [])
-            if isinstance(tests_data, dict)
-            else (tests_data or [])
-        )
-        tests = [TestCase.model_validate(t) for t in raw_tests]
-        results = [TestResult.model_validate(r) for r in results_data]
-        findings = (
-            [Finding.model_validate(f) for f in findings_data]
-            if findings_data
-            else []
-        )
+        try:
+            manifest = RunManifest.model_validate(manifest_data)
+            raw_tests = (
+                tests_data.get("tests", [])
+                if isinstance(tests_data, dict)
+                else (tests_data or [])
+            )
+            tests = [TestCase.model_validate(t) for t in raw_tests]
+            results = [TestResult.model_validate(r) for r in results_data]
+            findings = (
+                [Finding.model_validate(f) for f in findings_data]
+                if findings_data
+                else []
+            )
 
-        st.subheader("Autonomous Test & Defect Report")
+            st.subheader("Autonomous Test & Defect Report")
 
-        # Metric Cards
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Tests Executed", manifest.total_tests)
-        pass_rate = (
-            f"{(manifest.passed / manifest.total_tests * 100):.0f}%"
-            if manifest.total_tests
-            else "0%"
-        )
-        c2.metric("Passed", manifest.passed, delta=pass_rate)
-        c3.metric("Failed", manifest.failed)
-        c4.metric("Errors", manifest.errors)
-        c5.metric("Defects Identified", len(findings))
+            # Summary banner (TASK-021 requirement 7)
+            if manifest.status == "stopped":
+                st.info(f"⏹ **Run stopped early: {manifest.passed + manifest.failed + manifest.errors} of {manifest.total_tests} tests completed, {manifest.failed} failure(s) found.**")
+            elif manifest.failed == 0 and manifest.errors == 0:
+                st.success(f"✅ **Executive Summary: {manifest.total_tests} tests executed, 0 failures found.**")
+            else:
+                fail_label = f"{manifest.failed} failure{'s' if manifest.failed != 1 else ''}"
+                err_label = f", {manifest.errors} error{'s' if manifest.errors != 1 else ''}" if manifest.errors > 0 else ""
+                st.warning(f"⚠️ **Executive Summary: {manifest.total_tests} tests, {fail_label}{err_label} found.**")
 
-        st.divider()
-
-        # Test Coverage Matrix
-        st.markdown("### 📊 Test Coverage Matrix")
-        cov = compute_coverage(tests, results)
-        cat_matrix = cov["categories"]
-        rules_map = cov["rules"]
-
-        cov_rows = []
-        for cat, counts in sorted(cat_matrix.items()):
-            rate = (
-                f"{(counts['passed'] / counts['total'] * 100):.0f}%"
-                if counts["total"]
+            # Metric Cards
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("Tests Executed", manifest.total_tests)
+            pass_rate = (
+                f"{(manifest.passed / manifest.total_tests * 100):.0f}%"
+                if manifest.total_tests
                 else "0%"
             )
-            if counts["total"] == 0:
-                status_str = "⚠️ NO TESTS"
-            elif counts["passed"] == counts["total"]:
-                status_str = "✅ PASS"
-            elif counts["failed"] > 0:
-                status_str = "❌ FAIL"
-            elif counts["errors"] > 0:
-                status_str = "⚠️ ERROR"
-            else:
-                status_str = "⏳ NOT RUN"
+            c2.metric("Passed", manifest.passed, delta=pass_rate)
+            c3.metric("Failed", manifest.failed)
+            c4.metric("Errors", manifest.errors)
+            c5.metric("Defects Identified", len(findings))
 
-            cov_rows.append(
-                {
-                    "Category": cat,
-                    "Total": counts["total"],
-                    "Passed": counts["passed"],
-                    "Failed": counts["failed"],
-                    "Errors": counts["errors"],
-                    "Pass Rate": rate,
-                    "Status": status_str,
-                }
-            )
-        st.dataframe(
-            pd.DataFrame(cov_rows),
-            use_container_width=True,
-            hide_index=True,
-        )
+            st.divider()
 
-        # Specification Rule Coverage
-        st.markdown("### 📜 Specification Rule Coverage (R1 - R6)")
-        rule_rows = []
-        for r_id in ["R1", "R2", "R3", "R4", "R5", "R6"]:
-            desc = RULE_DESCRIPTIONS.get(r_id, "")
-            if r_id == "R6":
-                rule_rows.append(
+            # Test Coverage Matrix with icons & text (TASK-021 requirement 9)
+            st.markdown("### 📊 Test Coverage Matrix")
+            cov = compute_coverage(tests, results)
+            cat_matrix = cov["categories"]
+            rules_map = cov["rules"]
+
+            cov_rows = []
+            for cat, counts in sorted(cat_matrix.items()):
+                rate = (
+                    f"{(counts['passed'] / counts['total'] * 100):.0f}%"
+                    if counts["total"]
+                    else "0%"
+                )
+                if counts["total"] == 0:
+                    status_str = "⚠️ NO TESTS"
+                elif counts["passed"] == counts["total"]:
+                    status_str = "✅ PASS"
+                elif counts["failed"] > 0:
+                    status_str = "❌ FAIL"
+                elif counts["errors"] > 0:
+                    status_str = "⚠️ ERROR"
+                else:
+                    status_str = "⏳ NOT RUN"
+
+                cov_rows.append(
                     {
-                        "Rule": r_id,
-                        "Requirement": desc,
-                        "Covering Tests": "(none)",
-                        "Status": "ℹ️ not testable in simulator",
+                        "Category": cat,
+                        "Total": counts["total"],
+                        "Passed": counts["passed"],
+                        "Failed": counts["failed"],
+                        "Errors": counts["errors"],
+                        "Pass Rate": rate,
+                        "Status": status_str,
                     }
                 )
-            else:
-                t_ids = rules_map.get(r_id, [])
-                if t_ids:
-                    rule_rows.append(
-                        {
-                            "Rule": r_id,
-                            "Requirement": desc,
-                            "Covering Tests": ", ".join(t_ids),
-                            "Status": "✅ COVERED",
-                        }
-                    )
-                else:
+            st.dataframe(
+                pd.DataFrame(cov_rows),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            # Specification Rule Coverage (R1 - R6)
+            st.markdown("### 📜 Specification Rule Coverage (R1 - R6)")
+            rule_rows = []
+            for r_id in ["R1", "R2", "R3", "R4", "R5", "R6"]:
+                desc = RULE_DESCRIPTIONS.get(r_id, "")
+                if r_id == "R6":
                     rule_rows.append(
                         {
                             "Rule": r_id,
                             "Requirement": desc,
                             "Covering Tests": "(none)",
-                            "Status": "❌ MISSING",
+                            "Status": "ℹ️ not testable in simulator",
                         }
                     )
-        st.dataframe(
-            pd.DataFrame(rule_rows),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.divider()
-
-        # Root Cause / Planted Bugs Cards
-        st.markdown("### 🐛 Root-Cause Bug Findings")
-        if not findings:
-            st.success("✓ No software defects or failures detected in this run.")
-        else:
-            for f in findings:
-                sev_icon = (
-                    "🔴 HIGH"
-                    if f.severity == "high"
-                    else ("🟡 MEDIUM" if f.severity == "medium" else "🔵 LOW")
-                )
-                with st.expander(
-                    f"[{sev_icon}] {f.id}: {f.title}", expanded=True
-                ):
-                    st.markdown(
-                        f"**Spec Rule Reference**: `{f.spec_ref or 'General'}` | **Failed Tests**: {', '.join(f'`{tid}`' for tid in f.failed_tests)}"
-                    )
-                    c_e, c_o = st.columns(2)
-                    c_e.info(f"**Expected:**\n{f.expected}")
-                    c_o.error(f"**Observed:**\n{f.observed}")
-
-                    st.markdown(f"**Likely Root Cause:**\n{f.likely_cause}")
-                    if f.suspect_lines:
-                        st.markdown(
-                            f"**Suspect Source Lines:** `{f.suspect_lines}`"
+                else:
+                    t_ids = rules_map.get(r_id, [])
+                    if t_ids:
+                        rule_rows.append(
+                            {
+                                "Rule": r_id,
+                                "Requirement": desc,
+                                "Covering Tests": ", ".join(t_ids),
+                                "Status": "✅ COVERED",
+                            }
                         )
-                    st.markdown("**Suggested Code Fix:**")
-                    st.code(f.suggested_fix, language="cpp")
+                    else:
+                        rule_rows.append(
+                            {
+                                "Rule": r_id,
+                                "Requirement": desc,
+                                "Covering Tests": "(none)",
+                                "Status": "❌ MISSING",
+                            }
+                        )
+            st.dataframe(
+                pd.DataFrame(rule_rows),
+                use_container_width=True,
+                hide_index=True,
+            )
 
-        st.divider()
+            st.divider()
 
-        # Download Buttons
-        st.markdown("### 📥 Download Reports")
-        report_md_path = active_run_dir / "report.md"
-        report_html_path = active_run_dir / "report.html"
+            # Root Cause / Planted Bugs Cards
+            st.markdown("### 🐛 Root-Cause Bug Findings")
+            if not findings:
+                st.success("✓ No software defects or failures detected in this run.")
+            else:
+                for f in findings:
+                    sev_icon = (
+                        "🔴 HIGH"
+                        if f.severity == "high"
+                        else ("🟡 MEDIUM" if f.severity == "medium" else "🔵 LOW")
+                    )
+                    with st.expander(
+                        f"[{sev_icon}] {f.id}: {f.title}", expanded=True
+                    ):
+                        st.markdown(
+                            f"**Spec Rule Reference**: `{f.spec_ref or 'General'}` | **Failed Tests**: {', '.join(f'`{tid}`' for tid in f.failed_tests)}"
+                        )
+                        c_e, c_o = st.columns(2)
+                        c_e.info(f"**Expected:**\n{f.expected}")
+                        c_o.error(f"**Observed:**\n{f.observed}")
 
-        # Generate on demand if missing
-        if not report_md_path.is_file() or not report_html_path.is_file():
-            try:
-                generate_reports(active_run_dir)
-            except Exception:
-                pass
+                        st.markdown(f"**Likely Root Cause:**\n{f.likely_cause}")
+                        if f.suspect_lines:
+                            st.markdown(
+                                f"**Suspect Source Lines:** `{f.suspect_lines}`"
+                            )
+                        st.markdown("**Suggested Code Fix:**")
+                        st.code(f.suggested_fix, language="cpp")
 
-        col_dl1, col_dl2 = st.columns(2)
-        if report_md_path.is_file():
-            with col_dl1:
-                st.download_button(
-                    label="📄 Download Markdown Report (report.md)",
-                    data=report_md_path.read_text(encoding="utf-8"),
-                    file_name=f"report_{manifest.run_id}.md",
-                    mime="text/markdown",
-                    use_container_width=True,
-                )
-        if report_html_path.is_file():
-            with col_dl2:
-                st.download_button(
-                    label="🌐 Download Standalone HTML Report (report.html)",
-                    data=report_html_path.read_text(encoding="utf-8"),
-                    file_name=f"report_{manifest.run_id}.html",
-                    mime="text/html",
-                    use_container_width=True,
-                )
+            st.divider()
+
+            # Download Buttons
+            st.markdown("### 📥 Download Reports")
+            report_md_path = active_run_dir / "report.md"
+            report_html_path = active_run_dir / "report.html"
+
+            # Generate on demand if missing
+            if not report_md_path.is_file() or not report_html_path.is_file():
+                try:
+                    generate_reports(active_run_dir)
+                except Exception as g_exc:
+                    log_ui_error(active_run_dir.name, "generate_reports", g_exc)
+
+            col_dl1, col_dl2 = st.columns(2)
+            if report_md_path.is_file():
+                with col_dl1:
+                    st.download_button(
+                        label="📄 Download Markdown Report (report.md)",
+                        data=report_md_path.read_text(encoding="utf-8"),
+                        file_name=f"report_{manifest.run_id}.md",
+                        mime="text/markdown",
+                        use_container_width=True,
+                    )
+            if report_html_path.is_file():
+                with col_dl2:
+                    st.download_button(
+                        label="🌐 Download Standalone HTML Report (report.html)",
+                        data=report_html_path.read_text(encoding="utf-8"),
+                        file_name=f"report_{manifest.run_id}.html",
+                        mime="text/html",
+                        use_container_width=True,
+                    )
+        except Exception as exc:
+            log_ui_error(active_run_dir.name, "tab5_report", exc)
+            cause, hint = classify_error(exc)
+            st.error(f"❌ Error generating report tab: {cause}. 💡 *Hint:* {hint}")
