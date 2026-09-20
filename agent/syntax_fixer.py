@@ -8,6 +8,7 @@ and re-tests compilation before proceeding to the test pipeline.
 import difflib
 from pathlib import Path
 import shutil
+import subprocess
 from typing import Any, Optional
 from google import genai
 from pydantic import BaseModel, Field
@@ -74,7 +75,7 @@ def check_firmware_syntax(firmware_dir: Path | str) -> tuple[bool, str]:
     fw_dir = Path(firmware_dir).resolve()
     src_file = find_firmware_src_file(fw_dir)
 
-    # If Python file, validate syntax with ast.parse
+    # 1. If Python file, validate syntax with ast.parse
     if src_file.suffix.lower() == ".py" and src_file.is_file():
         try:
             import ast
@@ -83,7 +84,34 @@ def check_firmware_syntax(firmware_dir: Path | str) -> tuple[bool, str]:
         except SyntaxError as py_syn:
             return False, f"SyntaxError in {src_file.name}:{py_syn.lineno}:{py_syn.offset}: {py_syn.msg}\n  {py_syn.text or ''}"
 
-    # For C/C++/Arduino: use build_firmware
+    # 2. If PlatformIO project (platformio.ini present), use PlatformIO Core compiler
+    if (fw_dir / "platformio.ini").is_file():
+        success, log_tail, _ = build_firmware(fw_dir)
+        return success, log_tail
+
+    # 3. For standalone C/C++ host firmware without platformio.ini (e.g. water_tank_monitor)
+    # Check syntax using native GCC / G++ host compiler
+    if src_file.is_file() and src_file.suffix.lower() in (".c", ".cpp", ".cc"):
+        comp_name = "gcc" if src_file.suffix.lower() == ".c" else "g++"
+        compiler = shutil.which(comp_name) or shutil.which("gcc") or shutil.which("g++") or shutil.which("clang")
+        if compiler:
+            try:
+                proc = subprocess.run(
+                    [compiler, "-fsyntax-only", str(src_file)],
+                    cwd=str(fw_dir),
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                )
+                if proc.returncode == 0:
+                    return True, "Native C/C++ syntax is clean! Compilation succeeded with 0 errors."
+                err_text = (proc.stderr or proc.stdout or "").strip()
+                return False, err_text or "Compiler reported syntax errors."
+            except Exception as exc:
+                return False, f"Native compiler check failed: {exc}"
+
+    # Fallback to build_firmware if other checks do not apply
     success, log_tail, _ = build_firmware(fw_dir)
     return success, log_tail
 
