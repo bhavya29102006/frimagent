@@ -38,9 +38,12 @@ class NativeHostSimulator(BaseSimulator):
         temp_dir = target_run_dir / "sim" / test.id
         temp_dir.mkdir(parents=True, exist_ok=True)
 
-        src_candidate = fw_path / "src" / "main.cpp"
+        # Check source candidates: check main.c first (for C runner), then main.cpp
+        src_candidate = fw_path / "src" / "main.c"
         if not src_candidate.is_file():
-            c_files = list(fw_path.glob("src/*.c")) or list(fw_path.glob("*.c"))
+            src_candidate = fw_path / "src" / "main.cpp"
+        if not src_candidate.is_file():
+            c_files = list(fw_path.glob("src/*.c")) or list(fw_path.glob("src/*.cpp")) or list(fw_path.glob("*.c"))
             if c_files:
                 src_candidate = c_files[0]
 
@@ -60,8 +63,17 @@ class NativeHostSimulator(BaseSimulator):
                 )
                 if compile_proc.returncode == 0 and bin_path.is_file():
                     start_time = time.perf_counter()
+                    # Pass test inputs via CLI arguments for interactive native test execution
+                    env_steps = ",".join(f"{s.set_temp or 25.0:.1f}" for s in test.steps if s.set_temp is not None)
+                    cmd = [str(bin_path)]
+                    if test.sensor == "disconnected":
+                        cmd.append("--sensor=disconnected")
+                    elif env_steps:
+                        cmd.append(f"--temps={env_steps}")
+
                     run_proc = subprocess.run(
-                        [str(bin_path)],
+                        cmd,
+                        cwd=str(temp_dir),
                         capture_output=True,
                         text=True,
                         timeout=10,

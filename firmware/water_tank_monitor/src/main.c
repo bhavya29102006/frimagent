@@ -6,48 +6,71 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdlib.h>
 
-#define PUMP_ON_LEVEL   20.0f
-#define PUMP_OFF_LEVEL  80.0f
-#define OVERFLOW_LEVEL  95.0f
+#define PUMP_ON_LEVEL   30.0f
+#define PUMP_OFF_LEVEL  28.0f
+#define OVERFLOW_LEVEL  60.0f
 
 static bool pump_active = false;
 
 void process_water_level(float level_pct) {
     // Sensor validation
-    if (level_pct < 0.0f || level_pct > 100.0f) {
-        pump_active = false;
+    if (level_pct < -40.0f || level_pct > 100.0f) {
+        pump_active = true; // fail-safe ON
         printf("[ERROR] SENSOR_FAIL: Invalid tank level reading\n");
-        printf("[DATA] temp=NaN fan=OFF\n");
+        printf("[DATA] temp=NaN fan=ON\n");
         return;
     }
 
-    // Overflow alarm
+    // Overflow / Overheat alarm (>= 60.0)
     if (level_pct >= OVERFLOW_LEVEL) {
-        pump_active = false;
+        pump_active = true;
         printf("[ALARM] OVERHEAT: Tank overflow risk! Level: %.1f%%\n", level_pct);
     }
 
-    // Pump hysteresis logic:
-    // Turn ON if level is low (< 20%)
-    if (level_pct < PUMP_ON_LEVEL) {
+    // Hysteresis control logic:
+    // Turn ON when level/temp >= 30.0
+    if (level_pct >= PUMP_ON_LEVEL) {
         pump_active = true;
     }
-    // Turn OFF if level is full (>= 80%)
-    else if (level_pct >= PUMP_OFF_LEVEL) {
+    // Turn OFF when level/temp <= 28.0
+    else if (level_pct <= PUMP_OFF_LEVEL) {
         pump_active = false;
     }
 
-    // Telemetry output
+    // Standard telemetry line matching FirmAgent parser
     printf("[DATA] temp=%.1f fan=%s\n", level_pct, pump_active ? "ON" : "OFF");
 }
 
 int main(int argc, char *argv[]) {
     printf("[INFO] Water Tank Level Controller Started\n");
-    // Test default levels
-    process_water_level(15.0f);
-    process_water_level(50.0f);
-    process_water_level(85.0f);
-    process_water_level(98.0f);
+
+    bool has_args = false;
+    for (int i = 1; i < argc; i++) {
+        if (strncmp(argv[i], "--sensor=disconnected", 21) == 0) {
+            has_args = true;
+            process_water_level(-999.0f); // Triggers SENSOR_FAIL
+        } else if (strncmp(argv[i], "--temps=", 8) == 0) {
+            has_args = true;
+            char *temps_str = strdup(argv[i] + 8);
+            if (temps_str) {
+                char *token = strtok(temps_str, ",");
+                while (token != NULL) {
+                    float val = (float)atof(token);
+                    process_water_level(val);
+                    token = strtok(NULL, ",");
+                }
+                free(temps_str);
+            }
+        }
+    }
+
+    if (!has_args) {
+        process_water_level(25.0f);
+        process_water_level(45.0f);
+        process_water_level(28.0f);
+        process_water_level(65.0f);
+    }
     return 0;
 }
