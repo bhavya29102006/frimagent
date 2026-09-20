@@ -1,0 +1,14 @@
+name: 'Hysteresis Boundary Step to 27.9 C'
+version: 1
+steps:
+- wait-serial: '[INFO] BOOT'
+- set-control:
+    part-id: 'dht1'
+    control: 'temperature'
+    value: 31
+- wait-serial: 'temp=31.0 fan=ON'
+- set-control:
+    part-id: 'dht1'
+    control: 'temperature'
+    value: 27.9
+- wait-serial: 'temp=27.9 fan=OFF'

@@ -1,0 +1,9 @@
+name: 'Normal High Temperature'
+version: 1
+steps:
+- wait-serial: '[INFO] BOOT'
+- set-control:
+    part-id: 'dht1'
+    control: 'temperature'
+    value: 45
+- wait-serial: 'temp=45.0 fan=ON'

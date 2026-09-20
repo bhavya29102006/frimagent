@@ -1,0 +1,362 @@
+{
+  "tests": [
+    {
+      "id": "T01",
+      "name": "Normal Low Temperature",
+      "category": "normal",
+      "sensor": "normal",
+      "steps": [
+        {
+          "set_temp": 25.0,
+          "wait_ms": 2500
+        }
+      ],
+      "expect": [
+        {
+          "serial_contains": "temp=25.0 fan=OFF",
+          "spec_ref": "R3"
+        }
+      ],
+      "must_not": [],
+      "rationale": "Verify fan remains OFF at room temperature (25.0 C).",
+      "round": 0
+    },
+    {
+      "id": "T02",
+      "name": "Normal High Temperature",
+      "category": "normal",
+      "sensor": "normal",
+      "steps": [
+        {
+          "set_temp": 45.0,
+          "wait_ms": 2500
+        }
+      ],
+      "expect": [
+        {
+          "serial_contains": "temp=45.0 fan=ON",
+          "spec_ref": "R1"
+        }
+      ],
+      "must_not": [],
+      "rationale": "Verify fan turns ON at high operating temperature (45.0 C).",
+      "round": 0
+    },
+    {
+      "id": "T03",
+      "name": "Boundary Temperature Exact Threshold",
+      "category": "boundary",
+      "sensor": "normal",
+      "steps": [
+        {
+          "set_temp": 30.0,
+          "wait_ms": 2500
+        }
+      ],
+      "expect": [
+        {
+          "serial_contains": "temp=30.0 fan=ON",
+          "spec_ref": "R1"
+        }
+      ],
+      "must_not": [],
+      "rationale": "Verify fan is ON at exactly 30.0 C threshold.",
+      "round": 0
+    },
+    {
+      "id": "T04",
+      "name": "Boundary Temperature Just Below Threshold",
+      "category": "boundary",
+      "sensor": "normal",
+      "steps": [
+        {
+          "set_temp": 29.9,
+          "wait_ms": 2500
+        }
+      ],
+      "expect": [
+        {
+          "serial_contains": "temp=29.9 fan=OFF",
+          "spec_ref": "R3"
+        }
+      ],
+      "must_not": [],
+      "rationale": "Verify fan is OFF just below 30.0 C threshold at 29.9 C.",
+      "round": 0
+    },
+    {
+      "id": "T05",
+      "name": "Boundary Temperature Just Above Threshold",
+      "category": "boundary",
+      "sensor": "normal",
+      "steps": [
+        {
+          "set_temp": 30.1,
+          "wait_ms": 2500
+        }
+      ],
+      "expect": [
+        {
+          "serial_contains": "temp=30.1 fan=ON",
+          "spec_ref": "R1"
+        }
+      ],
+      "must_not": [],
+      "rationale": "Verify fan is ON just above 30.0 C threshold at 30.1 C.",
+      "round": 0
+    },
+    {
+      "id": "T06",
+      "name": "Abnormal Minimum DHT22 Range",
+      "category": "abnormal",
+      "sensor": "normal",
+      "steps": [
+        {
+          "set_temp": -40.0,
+          "wait_ms": 2500
+        }
+      ],
+      "expect": [
+        {
+          "serial_contains": "temp=-40.0 fan=OFF",
+          "spec_ref": "R3"
+        }
+      ],
+      "must_not": [],
+      "rationale": "Verify behavior at the extreme low limit of DHT22 sensor range (-40.0 C).",
+      "round": 0
+    },
+    {
+      "id": "T07",
+      "name": "Abnormal Maximum Valid DHT22 Range",
+      "category": "abnormal",
+      "sensor": "normal",
+      "steps": [
+        {
+          "set_temp": 80.0,
+          "wait_ms": 2500
+        }
+      ],
+      "expect": [
+        {
+          "serial_contains": "[ALARM] OVERHEAT",
+          "spec_ref": "R4"
+        },
+        {
+          "serial_contains": "temp=80.0 fan=ON",
+          "spec_ref": "R1"
+        }
+      ],
+      "must_not": [],
+      "rationale": "Verify behavior at the extreme high limit of DHT22 sensor range (80.0 C), triggering overheat alarm.",
+      "round": 0
+    },
+    {
+      "id": "T08",
+      "name": "Sensor Failure Disconnected",
+      "category": "sensor_failure",
+      "sensor": "disconnected",
+      "steps": [
+        {
+          "set_temp": null,
+          "wait_ms": 2500
+        }
+      ],
+      "expect": [
+        {
+          "serial_contains": "[ERROR] SENSOR_FAIL",
+          "spec_ref": "R5"
+        },
+        {
+          "serial_contains": "fan=ON",
+          "spec_ref": "R5"
+        }
+      ],
+      "must_not": [],
+      "rationale": "Verify fail-safe behavior prints SENSOR_FAIL and turns fan ON when sensor is disconnected.",
+      "round": 0
+    },
+    {
+      "id": "T09",
+      "name": "Thermal Recovery from Overheat",
+      "category": "recovery",
+      "sensor": "normal",
+      "steps": [
+        {
+          "set_temp": 65.0,
+          "wait_ms": 2500
+        },
+        {
+          "set_temp": 25.0,
+          "wait_ms": 2500
+        }
+      ],
+      "expect": [
+        {
+          "serial_contains": "[ALARM] OVERHEAT",
+          "spec_ref": "R4"
+        },
+        {
+          "serial_contains": "temp=25.0 fan=OFF",
+          "spec_ref": "R3"
+        }
+      ],
+      "must_not": [],
+      "rationale": "Verify system recovers from extreme overheat condition (65.0 C) back down to room temp (25.0 C).",
+      "round": 0
+    },
+    {
+      "id": "T10",
+      "name": "Hysteresis Sequence Step to 29.0 C",
+      "category": "sequence",
+      "sensor": "normal",
+      "steps": [
+        {
+          "set_temp": 31.0,
+          "wait_ms": 2500
+        },
+        {
+          "set_temp": 29.0,
+          "wait_ms": 2500
+        }
+      ],
+      "expect": [
+        {
+          "serial_contains": "temp=31.0 fan=ON",
+          "spec_ref": "R1"
+        },
+        {
+          "serial_contains": "temp=29.0 fan=ON",
+          "spec_ref": "R2"
+        }
+      ],
+      "must_not": [],
+      "rationale": "Verify 2 C hysteresis: transitioning from 31.0 C to 29.0 C keeps the fan ON.",
+      "round": 0
+    },
+    {
+      "id": "T11",
+      "name": "Hysteresis Sequence Step to 28.0 C",
+      "category": "sequence",
+      "sensor": "normal",
+      "steps": [
+        {
+          "set_temp": 31.0,
+          "wait_ms": 2500
+        },
+        {
+          "set_temp": 28.0,
+          "wait_ms": 2500
+        }
+      ],
+      "expect": [
+        {
+          "serial_contains": "temp=31.0 fan=ON",
+          "spec_ref": "R1"
+        },
+        {
+          "serial_contains": "temp=28.0 fan=OFF",
+          "spec_ref": "R2"
+        }
+      ],
+      "must_not": [],
+      "rationale": "Verify hysteresis rule: dropping down to 28.0 C finally turns the fan OFF.",
+      "round": 0
+    },
+    {
+      "id": "T12",
+      "name": "Hysteresis Boundary Step to 27.9 C",
+      "category": "sequence",
+      "sensor": "normal",
+      "steps": [
+        {
+          "set_temp": 31.0,
+          "wait_ms": 2500
+        },
+        {
+          "set_temp": 27.9,
+          "wait_ms": 2500
+        }
+      ],
+      "expect": [
+        {
+          "serial_contains": "temp=31.0 fan=ON",
+          "spec_ref": "R1"
+        },
+        {
+          "serial_contains": "temp=27.9 fan=OFF",
+          "spec_ref": "R2"
+        }
+      ],
+      "must_not": [],
+      "rationale": "Verify hysteresis boundary: dropping below 28.0 C to 27.9 C turns the fan OFF.",
+      "round": 0
+    },
+    {
+      "id": "T13",
+      "name": "Overheat Alarm Trigger",
+      "category": "combination",
+      "sensor": "normal",
+      "steps": [
+        {
+          "set_temp": 60.0,
+          "wait_ms": 2500
+        }
+      ],
+      "expect": [
+        {
+          "serial_contains": "[ALARM] OVERHEAT",
+          "spec_ref": "R4"
+        },
+        {
+          "serial_contains": "temp=60.0 fan=ON",
+          "spec_ref": "R1"
+        }
+      ],
+      "must_not": [],
+      "rationale": "Verify temperature at exactly 60.0 C triggers the overheat alarm and turns fan ON.",
+      "round": 0
+    },
+    {
+      "id": "T14",
+      "name": "Multi-Step Fluctuation Combination",
+      "category": "combination",
+      "sensor": "normal",
+      "steps": [
+        {
+          "set_temp": 26.0,
+          "wait_ms": 2500
+        },
+        {
+          "set_temp": 32.0,
+          "wait_ms": 2500
+        },
+        {
+          "set_temp": 61.0,
+          "wait_ms": 2500
+        }
+      ],
+      "expect": [
+        {
+          "serial_contains": "temp=26.0 fan=OFF",
+          "spec_ref": "R3"
+        },
+        {
+          "serial_contains": "temp=32.0 fan=ON",
+          "spec_ref": "R1"
+        },
+        {
+          "serial_contains": "[ALARM] OVERHEAT",
+          "spec_ref": "R4"
+        },
+        {
+          "serial_contains": "temp=61.0 fan=ON",
+          "spec_ref": "R4"
+        }
+      ],
+      "must_not": [],
+      "rationale": "Verify multi-step transition from normal to high temp and then into overheat alarm state.",
+      "round": 0
+    }
+  ]
+}

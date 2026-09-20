@@ -6,7 +6,8 @@ from pathlib import Path
 import shutil
 from typing import Any, Callable
 
-from agent.models import RunManifest, TestCase, TestResult
+from agent.followup import generate_followup_tests
+from agent.models import FirmwareAnalysis, RunManifest, TestCase, TestResult
 from agent.runner import run_test
 
 
@@ -19,6 +20,8 @@ def run_all(
     only_ids: list[str] | str | None = None,
     runner_fn: Callable[..., TestResult] | None = None,
     runs_base_dir: Path | str = "runs",
+    enable_followup: bool = False,
+    max_followup_rounds: int = 1,
 ) -> RunManifest:
     """Execute all tests sequentially with progress tracking and persistent state.
 
@@ -181,7 +184,147 @@ def run_all(
             stopped = True
             break
 
-    # 6. Finalize RunManifest
+    # 6. Autonomous Follow-Up Loop (TASK-019)
+    if enable_followup and not stopped and manifest.failed > 0:
+        target_analysis = (
+            dest_analysis if dest_analysis.is_file() else src_analysis
+        )
+        if target_analysis.is_file():
+            try:
+                analysis_model = FirmwareAnalysis.model_validate_json(
+                    target_analysis.read_text(encoding="utf-8")
+                )
+                source_candidates = [
+                    run_dir / "firmware_source.txt",
+                    Path(firmware_dir) / "src" / "main.cpp",
+                ]
+                numbered_src = ""
+                for cand in source_candidates:
+                    if cand.is_file():
+                        from agent.rootcause import number_source_code
+
+                        numbered_src = number_source_code(
+                            cand.read_text(encoding="utf-8")
+                        )
+                        break
+
+                for round_idx in range(1, max_followup_rounds + 1):
+                    if stop_event and stop_event.is_set():
+                        stopped = True
+                        break
+
+                    failed_res = [
+                        r for r in results if r.status in ("FAIL", "ERROR")
+                    ]
+                    followup_tests = generate_followup_tests(
+                        failed_results=failed_res,
+                        test_cases=tests,
+                        analysis=analysis_model,
+                        numbered_source=numbered_src or "No source code available",
+                        round_num=round_idx,
+                    )
+                    if not followup_tests:
+                        break
+
+                    manifest.followup_rounds = round_idx
+                    manifest.total_tests += len(followup_tests)
+                    tests.extend(followup_tests)
+
+                    # Update tests.json
+                    tests_dump = [t.model_dump() for t in tests]
+                    (run_dir / "tests.json").write_text(
+                        json.dumps({"tests": tests_dump}, indent=2),
+                        encoding="utf-8",
+                    )
+
+                    if callable(on_event):
+                        try:
+                            on_event(
+                                {
+                                    "type": "followup_started",
+                                    "round": round_idx,
+                                    "tests": [t.id for t in followup_tests],
+                                    "count": len(followup_tests),
+                                }
+                            )
+                        except Exception:
+                            pass
+
+                    for test in followup_tests:
+                        if stop_event and stop_event.is_set():
+                            stopped = True
+                            break
+
+                        if callable(on_event):
+                            try:
+                                on_event(
+                                    {
+                                        "type": "test_started",
+                                        "test_id": test.id,
+                                        "index": len(results) + 1,
+                                        "total": manifest.total_tests,
+                                    }
+                                )
+                            except Exception:
+                                pass
+
+                        try:
+                            f_result = run_func(
+                                test=test,
+                                firmware_dir=firmware_dir,
+                                run_dir=run_dir,
+                            )
+                        except Exception as exc:
+                            f_result = TestResult(
+                                test_id=test.id,
+                                status="ERROR",
+                                exit_code=-1,
+                                duration_s=0.0,
+                                expected=[
+                                    e.serial_contains for e in test.expect
+                                ],
+                                observed_lines=[],
+                                serial_log=f"Runner exception: {type(exc).__name__}: {exc}",
+                                violated_must_not=[],
+                                missing_expected=[
+                                    e.serial_contains for e in test.expect
+                                ],
+                                error_message=f"{type(exc).__name__}: {exc}",
+                            )
+
+                        results.append(f_result)
+                        if f_result.status == "PASS":
+                            manifest.passed += 1
+                        elif f_result.status == "FAIL":
+                            manifest.failed += 1
+                        else:
+                            manifest.errors += 1
+
+                        results_data = [r.model_dump() for r in results]
+                        (run_dir / "results.json").write_text(
+                            json.dumps(results_data, indent=2), encoding="utf-8"
+                        )
+                        (run_dir / "manifest.json").write_text(
+                            manifest.model_dump_json(indent=2), encoding="utf-8"
+                        )
+
+                        if callable(on_event):
+                            try:
+                                on_event(
+                                    {
+                                        "type": "test_finished",
+                                        "test_id": test.id,
+                                        "result": f_result,
+                                        "index": len(results),
+                                        "total": manifest.total_tests,
+                                    }
+                                )
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+
+    # 7. Finalize RunManifest
     manifest.finished_at = datetime.now(timezone.utc).isoformat()
     manifest.status = "stopped" if stopped else "done"
 

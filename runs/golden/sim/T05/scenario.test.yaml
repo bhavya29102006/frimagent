@@ -1,0 +1,9 @@
+name: 'Boundary Temperature Just Above Threshold'
+version: 1
+steps:
+- wait-serial: '[INFO] BOOT'
+- set-control:
+    part-id: 'dht1'
+    control: 'temperature'
+    value: 30.1
+- wait-serial: 'temp=30.1 fan=ON'

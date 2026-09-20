@@ -1,0 +1,6 @@
+name: 'Sensor Failure Disconnected'
+version: 1
+steps:
+- wait-serial: '[INFO] BOOT'
+- wait-serial: '[ERROR] SENSOR_FAIL'
+- wait-serial: 'fan=ON'

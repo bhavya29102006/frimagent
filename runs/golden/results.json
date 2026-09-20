@@ -1,0 +1,267 @@
+[
+  {
+    "test_id": "T01",
+    "status": "PASS",
+    "exit_code": 0,
+    "duration_s": 7.43,
+    "expected": [
+      "temp=25.0 fan=OFF"
+    ],
+    "observed_lines": [
+      "[INFO] BOOT",
+      "temp=25.0 fan=OFF"
+    ],
+    "serial_log": "Wokwi CLI v0.27.1 (ffde06bde1ae)\nConnected to Wokwi Simulation API 1.0.0-20260915-ga351c095\nStarting simulation...\n[INFO] BOOT\n[Normal Low Temperature] Expected text matched: \"[INFO] BOOT\"\n[DATA] temp=25.0 fan=OFF\n[Normal Low Temperature] Expected text matched: \"temp=25.0 fan=OFF\"\n[Normal Low Temperature] Scenario completed successfully\n",
+    "violated_must_not": [],
+    "missing_expected": [],
+    "error_message": null
+  },
+  {
+    "test_id": "T02",
+    "status": "PASS",
+    "exit_code": 0,
+    "duration_s": 6.88,
+    "expected": [
+      "temp=45.0 fan=ON"
+    ],
+    "observed_lines": [
+      "[INFO] BOOT",
+      "temp=45.0 fan=ON"
+    ],
+    "serial_log": "Wokwi CLI v0.27.1 (ffde06bde1ae)\nConnected to Wokwi Simulation API 1.0.0-20260915-ga351c095\nStarting simulation...\n[INFO] BOOT\n[Normal High Temperature] Expected text matched: \"[INFO] BOOT\"\n[DATA] temp=45.0 fan=ON\n[Normal High Temperature] Expected text matched: \"temp=45.0 fan=ON\"\n[Normal High Temperature] Scenario completed successfully\n",
+    "violated_must_not": [],
+    "missing_expected": [],
+    "error_message": null
+  },
+  {
+    "test_id": "T03",
+    "status": "FAIL",
+    "exit_code": 42,
+    "duration_s": 25.04,
+    "expected": [
+      "temp=30.0 fan=ON"
+    ],
+    "observed_lines": [
+      "[INFO] BOOT",
+      "temp=30.0 fan=OFF (x9)"
+    ],
+    "serial_log": "Wokwi CLI v0.27.1 (ffde06bde1ae)\nConnected to Wokwi Simulation API 1.0.0-20260915-ga351c095\nStarting simulation...\n[INFO] BOOT\n[Boundary Temperature Exact Threshold] Expected text matched: \"[INFO] BOOT\"\n[DATA] temp=30.0 fan=OFF\n[DATA] temp=30.0 fan=OFF\n[DATA] temp=30.0 fan=OFF\n[DATA] temp=30.0 fan=OFF\n[DATA] temp=30.0 fan=OFF\n[DATA] temp=30.0 fan=OFF\n[DATA] temp=30.0 fan=OFF\n[DATA] temp=30.0 fan=OFF\n[DATA] temp=30.0 fan=OFF\n\nTimeout: simulation did not finish in 20000ms",
+    "violated_must_not": [],
+    "missing_expected": [
+      "temp=30.0 fan=ON"
+    ],
+    "error_message": "Simulation timed out waiting for expected serial text (exit code 42)"
+  },
+  {
+    "test_id": "T04",
+    "status": "PASS",
+    "exit_code": 0,
+    "duration_s": 6.8,
+    "expected": [
+      "temp=29.9 fan=OFF"
+    ],
+    "observed_lines": [
+      "[INFO] BOOT",
+      "temp=29.9 fan=OFF"
+    ],
+    "serial_log": "Wokwi CLI v0.27.1 (ffde06bde1ae)\nConnected to Wokwi Simulation API 1.0.0-20260915-ga351c095\nStarting simulation...\n[INFO] BOOT\n[Boundary Temperature Just Below Threshold] Expected text matched: \"[INFO] BOOT\"\n[DATA] temp=29.9 fan=OFF\n[Boundary Temperature Just Below Threshold] Expected text matched: \"temp=29.9 fan=OFF\"\n[Boundary Temperature Just Below Threshold] Scenario completed successfully\n",
+    "violated_must_not": [],
+    "missing_expected": [],
+    "error_message": null
+  },
+  {
+    "test_id": "T05",
+    "status": "PASS",
+    "exit_code": 0,
+    "duration_s": 6.55,
+    "expected": [
+      "temp=30.1 fan=ON"
+    ],
+    "observed_lines": [
+      "[INFO] BOOT",
+      "temp=30.1 fan=ON"
+    ],
+    "serial_log": "Wokwi CLI v0.27.1 (ffde06bde1ae)\nConnected to Wokwi Simulation API 1.0.0-20260915-ga351c095\nStarting simulation...\n[INFO] BOOT\n[Boundary Temperature Just Above Threshold] Expected text matched: \"[INFO] BOOT\"\n[DATA] temp=30.1 fan=ON\n[Boundary Temperature Just Above Threshold] Expected text matched: \"temp=30.1 fan=ON\"\n[Boundary Temperature Just Above Threshold] Scenario completed successfully\n",
+    "violated_must_not": [],
+    "missing_expected": [],
+    "error_message": null
+  },
+  {
+    "test_id": "T06",
+    "status": "PASS",
+    "exit_code": 0,
+    "duration_s": 6.71,
+    "expected": [
+      "temp=-40.0 fan=OFF"
+    ],
+    "observed_lines": [
+      "[INFO] BOOT",
+      "temp=-40.0 fan=OFF"
+    ],
+    "serial_log": "Wokwi CLI v0.27.1 (ffde06bde1ae)\nConnected to Wokwi Simulation API 1.0.0-20260915-ga351c095\nStarting simulation...\n[INFO] BOOT\n[Abnormal Minimum DHT22 Range] Expected text matched: \"[INFO] BOOT\"\n[DATA] temp=-40.0 fan=OFF\n[Abnormal Minimum DHT22 Range] Expected text matched: \"temp=-40.0 fan=OFF\"\n[Abnormal Minimum DHT22 Range] Scenario completed successfully\n",
+    "violated_must_not": [],
+    "missing_expected": [],
+    "error_message": null
+  },
+  {
+    "test_id": "T07",
+    "status": "PASS",
+    "exit_code": 0,
+    "duration_s": 6.72,
+    "expected": [
+      "[ALARM] OVERHEAT",
+      "temp=80.0 fan=ON"
+    ],
+    "observed_lines": [
+      "[INFO] BOOT",
+      "[ALARM] OVERHEAT",
+      "temp=80.0 fan=ON"
+    ],
+    "serial_log": "Wokwi CLI v0.27.1 (ffde06bde1ae)\nConnected to Wokwi Simulation API 1.0.0-20260915-ga351c095\nStarting simulation...\n[INFO] BOOT\n[Abnormal Maximum Valid DHT22 Range] Expected text matched: \"[INFO] BOOT\"\n[ALARM] OVERHEAT\n[Abnormal Maximum Valid DHT22 Range] Expected text matched: \"[ALARM] OVERHEAT\"\n[DATA] temp=80.0 fan=ON\n[Abnormal Maximum Valid DHT22 Range] Expected text matched: \"temp=80.0 fan=ON\"\n[Abnormal Maximum Valid DHT22 Range] Scenario completed successfully\n",
+    "violated_must_not": [],
+    "missing_expected": [],
+    "error_message": null
+  },
+  {
+    "test_id": "T08",
+    "status": "FAIL",
+    "exit_code": 42,
+    "duration_s": 24.46,
+    "expected": [
+      "[ERROR] SENSOR_FAIL",
+      "fan=ON"
+    ],
+    "observed_lines": [
+      "[INFO] BOOT",
+      "temp=nan fan=OFF (x9)"
+    ],
+    "serial_log": "Wokwi CLI v0.27.1 (ffde06bde1ae)\nConnected to Wokwi Simulation API 1.0.0-20260915-ga351c095\nStarting simulation...\n[INFO] BOOT\n[Sensor Failure Disconnected] Expected text matched: \"[INFO] BOOT\"\n[DATA] temp=nan fan=OFF\n[DATA] temp=nan fan=OFF\n[DATA] temp=nan fan=OFF\n[DATA] temp=nan fan=OFF\n[DATA] temp=nan fan=OFF\n[DATA] temp=nan fan=OFF\n[DATA] temp=nan fan=OFF\n[DATA] temp=nan fan=OFF\n[DATA] temp=nan fan=OFF\n\n\nTimeout: simulation did not finish in 20000ms\n",
+    "violated_must_not": [],
+    "missing_expected": [
+      "[ERROR] SENSOR_FAIL",
+      "fan=ON"
+    ],
+    "error_message": "Simulation timed out waiting for expected serial text (exit code 42)"
+  },
+  {
+    "test_id": "T09",
+    "status": "PASS",
+    "exit_code": 0,
+    "duration_s": 9.3,
+    "expected": [
+      "[ALARM] OVERHEAT",
+      "temp=25.0 fan=OFF"
+    ],
+    "observed_lines": [
+      "[INFO] BOOT",
+      "[ALARM] OVERHEAT",
+      "temp=65.0 fan=ON",
+      "temp=25.0 fan=OFF"
+    ],
+    "serial_log": "Wokwi CLI v0.27.1 (ffde06bde1ae)\nConnected to Wokwi Simulation API 1.0.0-20260915-ga351c095\nStarting simulation...\n[INFO] BOOT\n[Thermal Recovery from Overheat] Expected text matched: \"[INFO] BOOT\"\n[ALARM] OVERHEAT\n[Thermal Recovery from Overheat] Expected text matched: \"[ALARM] OVERHEAT\"\n[DATA] temp=65.0 fan=ON\n[DATA] temp=25.0 fan=OFF\n[Thermal Recovery from Overheat] Expected text matched: \"temp=25.0 fan=OFF\"\n[Thermal Recovery from Overheat] Scenario completed successfully\n",
+    "violated_must_not": [],
+    "missing_expected": [],
+    "error_message": null
+  },
+  {
+    "test_id": "T10",
+    "status": "FAIL",
+    "exit_code": 42,
+    "duration_s": 25.03,
+    "expected": [
+      "temp=31.0 fan=ON",
+      "temp=29.0 fan=ON"
+    ],
+    "observed_lines": [
+      "[INFO] BOOT",
+      "temp=31.0 fan=ON",
+      "temp=29.0 fan=OFF (x8)"
+    ],
+    "serial_log": "Wokwi CLI v0.27.1 (ffde06bde1ae)\nConnected to Wokwi Simulation API 1.0.0-20260915-ga351c095\nStarting simulation...\n[INFO] BOOT\n[Hysteresis Sequence Step to 29.0 C] Expected text matched: \"[INFO] BOOT\"\n[DATA] temp=31.0 fan=ON\n[Hysteresis Sequence Step to 29.0 C] Expected text matched: \"temp=31.0 fan=ON\"\n[DATA] temp=29.0 fan=OFF\n[DATA] temp=29.0 fan=OFF\n[DATA] temp=29.0 fan=OFF\n[DATA] temp=29.0 fan=OFF\n[DATA] temp=29.0 fan=OFF\n[DATA] temp=29.0 fan=OFF\n[DATA] temp=29.0 fan=OFF\n[DATA] temp=29.0 fan=OFF\n\nTimeout: simulation did not finish in 20000ms",
+    "violated_must_not": [],
+    "missing_expected": [
+      "temp=29.0 fan=ON"
+    ],
+    "error_message": "Simulation timed out waiting for expected serial text (exit code 42)"
+  },
+  {
+    "test_id": "T11",
+    "status": "PASS",
+    "exit_code": 0,
+    "duration_s": 9.73,
+    "expected": [
+      "temp=31.0 fan=ON",
+      "temp=28.0 fan=OFF"
+    ],
+    "observed_lines": [
+      "[INFO] BOOT",
+      "temp=31.0 fan=ON",
+      "temp=28.0 fan=OFF"
+    ],
+    "serial_log": "Wokwi CLI v0.27.1 (ffde06bde1ae)\nConnected to Wokwi Simulation API 1.0.0-20260915-ga351c095\nStarting simulation...\n[INFO] BOOT\n[Hysteresis Sequence Step to 28.0 C] Expected text matched: \"[INFO] BOOT\"\n[DATA] temp=31.0 fan=ON\n[Hysteresis Sequence Step to 28.0 C] Expected text matched: \"temp=31.0 fan=ON\"\n[DATA] temp=28.0 fan=OFF\n[Hysteresis Sequence Step to 28.0 C] Expected text matched: \"temp=28.0 fan=OFF\"\n[Hysteresis Sequence Step to 28.0 C] Scenario completed successfully\n",
+    "violated_must_not": [],
+    "missing_expected": [],
+    "error_message": null
+  },
+  {
+    "test_id": "T12",
+    "status": "PASS",
+    "exit_code": 0,
+    "duration_s": 9.66,
+    "expected": [
+      "temp=31.0 fan=ON",
+      "temp=27.9 fan=OFF"
+    ],
+    "observed_lines": [
+      "[INFO] BOOT",
+      "temp=31.0 fan=ON",
+      "temp=27.9 fan=OFF"
+    ],
+    "serial_log": "Wokwi CLI v0.27.1 (ffde06bde1ae)\nConnected to Wokwi Simulation API 1.0.0-20260915-ga351c095\nStarting simulation...\n[INFO] BOOT\n[Hysteresis Boundary Step to 27.9 C] Expected text matched: \"[INFO] BOOT\"\n[DATA] temp=31.0 fan=ON\n[Hysteresis Boundary Step to 27.9 C] Expected text matched: \"temp=31.0 fan=ON\"\n[DATA] temp=27.9 fan=OFF\n[Hysteresis Boundary Step to 27.9 C] Expected text matched: \"temp=27.9 fan=OFF\"\n[Hysteresis Boundary Step to 27.9 C] Scenario completed successfully\n",
+    "violated_must_not": [],
+    "missing_expected": [],
+    "error_message": null
+  },
+  {
+    "test_id": "T13",
+    "status": "PASS",
+    "exit_code": 0,
+    "duration_s": 7.4,
+    "expected": [
+      "[ALARM] OVERHEAT",
+      "temp=60.0 fan=ON"
+    ],
+    "observed_lines": [
+      "[INFO] BOOT",
+      "[ALARM] OVERHEAT",
+      "temp=60.0 fan=ON"
+    ],
+    "serial_log": "Wokwi CLI v0.27.1 (ffde06bde1ae)\nConnected to Wokwi Simulation API 1.0.0-20260915-ga351c095\nStarting simulation...\n[INFO] BOOT\n[Overheat Alarm Trigger] Expected text matched: \"[INFO] BOOT\"\n[ALARM] OVERHEAT\n[Overheat Alarm Trigger] Expected text matched: \"[ALARM] OVERHEAT\"\n[DATA] temp=60.0 fan=ON\n[Overheat Alarm Trigger] Expected text matched: \"temp=60.0 fan=ON\"\n[Overheat Alarm Trigger] Scenario completed successfully\n",
+    "violated_must_not": [],
+    "missing_expected": [],
+    "error_message": null
+  },
+  {
+    "test_id": "T14",
+    "status": "PASS",
+    "exit_code": 0,
+    "duration_s": 12.96,
+    "expected": [
+      "temp=26.0 fan=OFF",
+      "temp=32.0 fan=ON",
+      "[ALARM] OVERHEAT",
+      "temp=61.0 fan=ON"
+    ],
+    "observed_lines": [
+      "[INFO] BOOT",
+      "temp=26.0 fan=OFF",
+      "temp=32.0 fan=ON",
+      "[ALARM] OVERHEAT",
+      "temp=61.0 fan=ON"
+    ],
+    "serial_log": "Wokwi CLI v0.27.1 (ffde06bde1ae)\nConnected to Wokwi Simulation API 1.0.0-20260915-ga351c095\nStarting simulation...\n[INFO] BOOT\n[Multi-Step Fluctuation Combination] Expected text matched: \"[INFO] BOOT\"\n[DATA] temp=26.0 fan=OFF\n[Multi-Step Fluctuation Combination] Expected text matched: \"temp=26.0 fan=OFF\"\n[DATA] temp=32.0 fan=ON\n[Multi-Step Fluctuation Combination] Expected text matched: \"temp=32.0 fan=ON\"\n[ALARM] OVERHEAT\n[Multi-Step Fluctuation Combination] Expected text matched: \"[ALARM] OVERHEAT\"\n[DATA] temp=61.0 fan=ON\n[Multi-Step Fluctuation Combination] Expected text matched: \"temp=61.0 fan=ON\"\n[Multi-Step Fluctuation Combination] Scenario completed successfully\n",
+    "violated_must_not": [],
+    "missing_expected": [],
+    "error_message": null
+  }
+]

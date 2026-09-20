@@ -1,0 +1,53 @@
+[
+  {
+    "id": "F1",
+    "title": "Strict Inequality on Temperature Threshold for Fan Activation",
+    "failed_tests": [
+      "T03"
+    ],
+    "spec_ref": "R1",
+    "expected": "Fan turns ON when temperature is exactly 30.0 C",
+    "observed": "Fan remains OFF when temperature is 30.0 C due to strict greater-than comparison",
+    "likely_cause": "Line 44 uses `t > 30.0` instead of `t >= 30.0`, violating rule R1 which specifies fan is ON when temperature >= 30.0 C.",
+    "suspect_lines": [
+      44
+    ],
+    "suggested_fix": "  } else if (t >= 30.0) {\n    fanOn = true;",
+    "severity": "medium"
+  },
+  {
+    "id": "F2",
+    "title": "Missing Sensor Failure Handling and Fail-Safe Operation",
+    "failed_tests": [
+      "T08"
+    ],
+    "spec_ref": "R5",
+    "expected": "Print '[ERROR] SENSOR_FAIL' and turn the fan ON when sensor read fails (NaN)",
+    "observed": "Prints temp=nan fan=OFF without any error message or fail-safe fan activation",
+    "likely_cause": "The firmware lacks a check for `isnan(t)` to detect sensor read failures, completely missing the error logging and fail-safe logic required by R5.",
+    "suspect_lines": [
+      39,
+      40,
+      41
+    ],
+    "suggested_fix": "  float t = dht.readTemperature();\n  if (isnan(t)) {\n    Serial.println(\"[ERROR] SENSOR_FAIL\");\n    fanOn = true;\n  } else if (t >= 60.0) {\n    Serial.println(\"[ALARM] OVERHEAT\");\n    fanOn = true;\n  } else if (t >= 30.0) {\n    fanOn = true;\n  } else if (t <= 28.0) {\n    fanOn = false;\n  }",
+    "severity": "high"
+  },
+  {
+    "id": "F3",
+    "title": "Missing Hysteresis Logic for Fan Turn-Off",
+    "failed_tests": [
+      "T10"
+    ],
+    "spec_ref": "R2",
+    "expected": "Fan remains ON when temperature drops to 29.0 C after being ON, until it drops to <= 28.0 C",
+    "observed": "Fan turns OFF immediately when temperature drops to 29.0 C because branch `else if (t < 30.0)` turns it off",
+    "likely_cause": "The control logic uses `t < 30.0` instead of incorporating the 2 C hysteresis rule (turning off only when temperature <= 28.0 C once ON), and lacks state tracking for hysteresis.",
+    "suspect_lines": [
+      46,
+      47
+    ],
+    "suggested_fix": "  } else if (fanOn && t <= 28.0) {\n    fanOn = false;\n  } else if (!fanOn && t < 30.0) {\n    fanOn = false;\n  }",
+    "severity": "medium"
+  }
+]

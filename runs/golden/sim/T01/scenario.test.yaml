@@ -1,0 +1,9 @@
+name: 'Normal Low Temperature'
+version: 1
+steps:
+- wait-serial: '[INFO] BOOT'
+- set-control:
+    part-id: 'dht1'
+    control: 'temperature'
+    value: 25
+- wait-serial: 'temp=25.0 fan=OFF'

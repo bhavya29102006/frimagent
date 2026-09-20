@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FirmAgent Report - 20260920-185754</title>
+    <style>
+        :root {
+            --bg: #0F172A;
+            --surface: #1E293B;
+            --surface-subtle: #243044;
+            --border: #334155;
+            --text: #E2E8F0;
+            --muted: #94A3B8;
+            --accent: #6366F1;
+            --pass: #22C55E;
+            --fail: #EF4444;
+            --warn: #F59E0B;
+        }
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 32px 24px;
+            line-height: 1.5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 20px;
+            margin-bottom: 24px;
+        }
+        .header h1 {
+            margin: 0 0 6px 0;
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            color: #F8FAFC;
+        }
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 6px;
+            text-transform: uppercase;
+        }
+        .badge-pass { background: rgba(34, 197, 94, 0.15); color: #22C55E; border: 1px solid rgba(34, 197, 94, 0.3); }
+        .badge-fail { background: rgba(239, 68, 68, 0.15); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+        .badge-err  { background: rgba(245, 158, 11, 0.15); color: #F59E0B; border: 1px solid rgba(245, 158, 11, 0.3); }
+        .badge-cat  { background: var(--surface-subtle); color: var(--muted); border: 1px solid var(--border); }
+        .badge-high { background: rgba(239, 68, 68, 0.2); color: #EF4444; border: 1px solid #EF4444; }
+        .badge-med  { background: rgba(245, 158, 11, 0.2); color: #F59E0B; border: 1px solid #F59E0B; }
+        .badge-low  { background: rgba(99, 102, 241, 0.2); color: #818CF8; border: 1px solid #818CF8; }
+
+        /* Metrics grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+        .metric-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 20px;
+        }
+        .metric-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+        .metric-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #F8FAFC;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+        }
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 0 0 16px 0;
+            color: #F8FAFC;
+        }
+        .subhead {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        th, td {
+            text-align: left;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            color: var(--muted);
+            font-weight: 600;
+            background: rgba(15, 23, 42, 0.4);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        tr:hover td {
+            background: var(--surface-subtle);
+        }
+
+        .progress-track {
+            width: 100%;
+            height: 6px;
+            background: var(--surface-subtle);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            border-radius: 3px;
+        }
+
+        /* Findings */
+        .finding-card {
+            border-left: 4px solid var(--accent);
+            margin-bottom: 16px;
+        }
+        .compare-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 8px;
+        }
+        .compare-box {
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+        }
+        .compare-exp { background: rgba(34, 197, 94, 0.08); border: 1px solid rgba(34, 197, 94, 0.2); }
+        .compare-obs { background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); }
+
+        pre {
+            background: #090E1A;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 12px;
+            overflow-x: auto;
+            font-size: 12px;
+            font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+            color: #E2E8F0;
+            margin: 6px 0 0 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div>
+                <h1>FirmAgent Autonomous Test Report</h1>
+                <div style="color: var(--muted); font-size: 13px;">
+                    Firmware: <strong style="color: #F8FAFC;">fan_controller</strong> &nbsp;|&nbsp;
+                    Run ID: <code>20260920-185754</code> &nbsp;|&nbsp;
+                    Status: <strong style="color: #22C55E;">DONE</strong>
+                </div>
+            </div>
+            <div style="text-align: right; color: var(--muted); font-size: 12px;">
+                Started: 2026-09-20T13:27:54.863839+00:00<br>
+                Finished: 2026-09-20T13:30:39.707386+00:00
+            </div>
+        </div>
+
+        <!-- Metric Cards -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-label">Total Tests</div>
+                <div class="metric-value">14</div>
+            </div>
+            <div class="metric-card" style="border-top: 3px solid #22C55E;">
+                <div class="metric-label">Passed</div>
+                <div class="metric-value" style="color: #22C55E;">11 <span style="font-size: 14px; font-weight: normal;">(79%)</span></div>
+            </div>
+            <div class="metric-card" style="border-top: 3px solid #EF4444;">
+                <div class="metric-label">Failed</div>
+                <div class="metric-value" style="color: #EF4444;">3</div>
+            </div>
+            <div class="metric-card" style="border-top: 3px solid #F59E0B;">
+                <div class="metric-label">Errors</div>
+                <div class="metric-value" style="color: #F59E0B;">0</div>
+            </div>
+            <div class="metric-card" style="border-top: 3px solid #6366F1;">
+                <div class="metric-label">Defects Identified</div>
+                <div class="metric-value" style="color: #818CF8;">3</div>
+            </div>
+        </div>
+
+        <!-- Coverage Matrix -->
+        <div class="card">
+            <h2 class="section-title">Test Coverage by Category</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Total</th>
+                        <th>Passed</th>
+                        <th>Failed</th>
+                        <th>Errors</th>
+                        <th>Pass Rate</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+            <tr>
+                <td><span class="badge badge-cat">abnormal</span></td>
+                <td><strong>2</strong></td>
+                <td style="color: #22C55E;">2</td>
+                <td style="color: #EF4444;">0</td>
+                <td style="color: #F59E0B;">0</td>
+                <td style="width: 140px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width: 100.0%; background: #22C55E;"></div>
+                        </div>
+                        <span style="font-size: 12px; min-width: 40px;">100%</span>
+                    </div>
+                </td>
+            </tr>
+        
+            <tr>
+                <td><span class="badge badge-cat">boundary</span></td>
+                <td><strong>3</strong></td>
+                <td style="color: #22C55E;">2</td>
+                <td style="color: #EF4444;">1</td>
+                <td style="color: #F59E0B;">0</td>
+                <td style="width: 140px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width: 66.7%; background: #F59E0B;"></div>
+                        </div>
+                        <span style="font-size: 12px; min-width: 40px;">67%</span>
+                    </div>
+                </td>
+            </tr>
+        
+            <tr>
+                <td><span class="badge badge-cat">combination</span></td>
+                <td><strong>2</strong></td>
+                <td style="color: #22C55E;">2</td>
+                <td style="color: #EF4444;">0</td>
+                <td style="color: #F59E0B;">0</td>
+                <td style="width: 140px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width: 100.0%; background: #22C55E;"></div>
+                        </div>
+                        <span style="font-size: 12px; min-width: 40px;">100%</span>
+                    </div>
+                </td>
+            </tr>
+        
+            <tr>
+                <td><span class="badge badge-cat">normal</span></td>
+                <td><strong>2</strong></td>
+                <td style="color: #22C55E;">2</td>
+                <td style="color: #EF4444;">0</td>
+                <td style="color: #F59E0B;">0</td>
+                <td style="width: 140px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width: 100.0%; background: #22C55E;"></div>
+                        </div>
+                        <span style="font-size: 12px; min-width: 40px;">100%</span>
+                    </div>
+                </td>
+            </tr>
+        
+            <tr>
+                <td><span class="badge badge-cat">recovery</span></td>
+                <td><strong>1</strong></td>
+                <td style="color: #22C55E;">1</td>
+                <td style="color: #EF4444;">0</td>
+                <td style="color: #F59E0B;">0</td>
+                <td style="width: 140px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width: 100.0%; background: #22C55E;"></div>
+                        </div>
+                        <span style="font-size: 12px; min-width: 40px;">100%</span>
+                    </div>
+                </td>
+            </tr>
+        
+            <tr>
+                <td><span class="badge badge-cat">sensor_failure</span></td>
+                <td><strong>1</strong></td>
+                <td style="color: #22C55E;">0</td>
+                <td style="color: #EF4444;">1</td>
+                <td style="color: #F59E0B;">0</td>
+                <td style="width: 140px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width: 0.0%; background: #EF4444;"></div>
+                        </div>
+                        <span style="font-size: 12px; min-width: 40px;">0%</span>
+                    </div>
+                </td>
+            </tr>
+        
+            <tr>
+                <td><span class="badge badge-cat">sequence</span></td>
+                <td><strong>3</strong></td>
+                <td style="color: #22C55E;">2</td>
+                <td style="color: #EF4444;">1</td>
+                <td style="color: #F59E0B;">0</td>
+                <td style="width: 140px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width: 66.7%; background: #F59E0B;"></div>
+                        </div>
+                        <span style="font-size: 12px; min-width: 40px;">67%</span>
+                    </div>
+                </td>
+            </tr>
+        
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Root Cause Findings -->
+        <div class="card">
+            <h2 class="section-title">Root-Cause Analysis & Identified Bugs (3)</h2>
+            
+            <div class="card finding-card">
+                <div class="card-header">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span class="badge badge-med">MEDIUM</span>
+                        <h3 style="margin: 0; font-size: 16px;">F1: Strict Inequality on Temperature Threshold for Fan Activation</h3>
+                    </div>
+                    <div><span class="badge badge-cat">Spec R1</span></div>
+                </div>
+                <div style="margin: 12px 0;">
+                    <span class="subhead">Failed Tests:</span> <span class="badge badge-fail">T03</span>
+                </div>
+                <div class="compare-grid">
+                    <div class="compare-box compare-exp">
+                        <span class="subhead" style="color: #22C55E;">Expected:</span>
+                        <div>Fan turns ON when temperature is exactly 30.0 C</div>
+                    </div>
+                    <div class="compare-box compare-obs">
+                        <span class="subhead" style="color: #EF4444;">Observed:</span>
+                        <div>Fan remains OFF when temperature is 30.0 C due to strict greater-than comparison</div>
+                    </div>
+                </div>
+                <div style="margin-top: 12px;">
+                    <span class="subhead">Likely Root Cause:</span>
+                    <p style="margin: 4px 0 0 0; color: #E2E8F0;">Line 44 uses `t &gt; 30.0` instead of `t &gt;= 30.0`, violating rule R1 which specifies fan is ON when temperature &gt;= 30.0 C.</p>
+                </div>
+                
+                    <div style="margin-top: 8px;">
+                        <span class="subhead">Source Snippet (Suspect Lines [44]):</span>
+                        <pre><code>    42 |     Serial.println(&quot;[ALARM] OVERHEAT&quot;);
+    43 |     fanOn = true;
+&gt;&gt;  44 |   } else if (t &gt; 30.0) {
+    45 |     fanOn = true;
+    46 |   } else if (t &lt; 30.0) {</code></pre>
+                    </div>
+                    
+                <div style="margin-top: 12px;">
+                    <span class="subhead">Suggested Fix:</span>
+                    <pre><code>  } else if (t &gt;= 30.0) {
+    fanOn = true;</code></pre>
+                </div>
+            </div>
+            
+            <div class="card finding-card">
+                <div class="card-header">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span class="badge badge-high">HIGH</span>
+                        <h3 style="margin: 0; font-size: 16px;">F2: Missing Sensor Failure Handling and Fail-Safe Operation</h3>
+                    </div>
+                    <div><span class="badge badge-cat">Spec R5</span></div>
+                </div>
+                <div style="margin: 12px 0;">
+                    <span class="subhead">Failed Tests:</span> <span class="badge badge-fail">T08</span>
+                </div>
+                <div class="compare-grid">
+                    <div class="compare-box compare-exp">
+                        <span class="subhead" style="color: #22C55E;">Expected:</span>
+                        <div>Print &#x27;[ERROR] SENSOR_FAIL&#x27; and turn the fan ON when sensor read fails (NaN)</div>
+                    </div>
+                    <div class="compare-box compare-obs">
+                        <span class="subhead" style="color: #EF4444;">Observed:</span>
+                        <div>Prints temp=nan fan=OFF without any error message or fail-safe fan activation</div>
+                    </div>
+                </div>
+                <div style="margin-top: 12px;">
+                    <span class="subhead">Likely Root Cause:</span>
+                    <p style="margin: 4px 0 0 0; color: #E2E8F0;">The firmware lacks a check for `isnan(t)` to detect sensor read failures, completely missing the error logging and fail-safe logic required by R5.</p>
+                </div>
+                
+                    <div style="margin-top: 8px;">
+                        <span class="subhead">Source Snippet (Suspect Lines [39, 40, 41]):</span>
+                        <pre><code>    37 | void loop() {
+    38 |   delay(2000);
+&gt;&gt;  39 |   float t = dht.readTemperature();
+&gt;&gt;  40 | 
+&gt;&gt;  41 |   if (t &gt;= 60.0) {
+    42 |     Serial.println(&quot;[ALARM] OVERHEAT&quot;);
+    43 |     fanOn = true;</code></pre>
+                    </div>
+                    
+                <div style="margin-top: 12px;">
+                    <span class="subhead">Suggested Fix:</span>
+                    <pre><code>  float t = dht.readTemperature();
+  if (isnan(t)) {
+    Serial.println(&quot;[ERROR] SENSOR_FAIL&quot;);
+    fanOn = true;
+  } else if (t &gt;= 60.0) {
+    Serial.println(&quot;[ALARM] OVERHEAT&quot;);
+    fanOn = true;
+  } else if (t &gt;= 30.0) {
+    fanOn = true;
+  } else if (t &lt;= 28.0) {
+    fanOn = false;
+  }</code></pre>
+                </div>
+            </div>
+            
+            <div class="card finding-card">
+                <div class="card-header">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span class="badge badge-med">MEDIUM</span>
+                        <h3 style="margin: 0; font-size: 16px;">F3: Missing Hysteresis Logic for Fan Turn-Off</h3>
+                    </div>
+                    <div><span class="badge badge-cat">Spec R2</span></div>
+                </div>
+                <div style="margin: 12px 0;">
+                    <span class="subhead">Failed Tests:</span> <span class="badge badge-fail">T10</span>
+                </div>
+                <div class="compare-grid">
+                    <div class="compare-box compare-exp">
+                        <span class="subhead" style="color: #22C55E;">Expected:</span>
+                        <div>Fan remains ON when temperature drops to 29.0 C after being ON, until it drops to &lt;= 28.0 C</div>
+                    </div>
+                    <div class="compare-box compare-obs">
+                        <span class="subhead" style="color: #EF4444;">Observed:</span>
+                        <div>Fan turns OFF immediately when temperature drops to 29.0 C because branch `else if (t &lt; 30.0)` turns it off</div>
+                    </div>
+                </div>
+                <div style="margin-top: 12px;">
+                    <span class="subhead">Likely Root Cause:</span>
+                    <p style="margin: 4px 0 0 0; color: #E2E8F0;">The control logic uses `t &lt; 30.0` instead of incorporating the 2 C hysteresis rule (turning off only when temperature &lt;= 28.0 C once ON), and lacks state tracking for hysteresis.</p>
+                </div>
+                
+                    <div style="margin-top: 8px;">
+                        <span class="subhead">Source Snippet (Suspect Lines [46, 47]):</span>
+                        <pre><code>    44 |   } else if (t &gt; 30.0) {
+    45 |     fanOn = true;
+&gt;&gt;  46 |   } else if (t &lt; 30.0) {
+&gt;&gt;  47 |     fanOn = false;
+    48 |   }
+    49 | </code></pre>
+                    </div>
+                    
+                <div style="margin-top: 12px;">
+                    <span class="subhead">Suggested Fix:</span>
+                    <pre><code>  } else if (fanOn &amp;&amp; t &lt;= 28.0) {
+    fanOn = false;
+  } else if (!fanOn &amp;&amp; t &lt; 30.0) {
+    fanOn = false;
+  }</code></pre>
+                </div>
+            </div>
+            
+        </div>
+
+        <!-- Detailed Results Table -->
+        <div class="card">
+            <h2 class="section-title">Execution Details (14 tests)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Test Name</th>
+                        <th>Category</th>
+                        <th>Status</th>
+                        <th>Duration</th>
+                        <th>Observed Serial Telemetry</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+            <tr>
+                <td><strong>T01</strong></td>
+                <td>Normal Low Temperature</td>
+                <td><span class="badge badge-cat">normal</span></td>
+                <td><span class="badge badge-pass">✓ PASS</span></td>
+                <td>7.4s</td>
+                <td style="font-family: monospace; font-size: 12px;">[INFO] BOOT<br>temp=25.0 fan=OFF</td>
+            </tr>
+        
+            <tr>
+                <td><strong>T02</strong></td>
+                <td>Normal High Temperature</td>
+                <td><span class="badge badge-cat">normal</span></td>
+                <td><span class="badge badge-pass">✓ PASS</span></td>
+                <td>6.9s</td>
+                <td style="font-family: monospace; font-size: 12px;">[INFO] BOOT<br>temp=45.0 fan=ON</td>
+            </tr>
+        
+            <tr>
+                <td><strong>T03</strong></td>
+                <td>Boundary Temperature Exact Threshold</td>
+                <td><span class="badge badge-cat">boundary</span></td>
+                <td><span class="badge badge-fail">✗ FAIL</span></td>
+                <td>25.0s</td>
+                <td style="font-family: monospace; font-size: 12px;">[INFO] BOOT<br>temp=30.0 fan=OFF (x9)</td>
+            </tr>
+        
+            <tr>
+                <td><strong>T04</strong></td>
+                <td>Boundary Temperature Just Below Threshold</td>
+                <td><span class="badge badge-cat">boundary</span></td>
+                <td><span class="badge badge-pass">✓ PASS</span></td>
+                <td>6.8s</td>
+                <td style="font-family: monospace; font-size: 12px;">[INFO] BOOT<br>temp=29.9 fan=OFF</td>
+            </tr>
+        
+            <tr>
+                <td><strong>T05</strong></td>
+                <td>Boundary Temperature Just Above Threshold</td>
+                <td><span class="badge badge-cat">boundary</span></td>
+                <td><span class="badge badge-pass">✓ PASS</span></td>
+                <td>6.5s</td>
+                <td style="font-family: monospace; font-size: 12px;">[INFO] BOOT<br>temp=30.1 fan=ON</td>
+            </tr>
+        
+            <tr>
+                <td><strong>T06</strong></td>
+                <td>Abnormal Minimum DHT22 Range</td>
+                <td><span class="badge badge-cat">abnormal</span></td>
+                <td><span class="badge badge-pass">✓ PASS</span></td>
+                <td>6.7s</td>
+                <td style="font-family: monospace; font-size: 12px;">[INFO] BOOT<br>temp=-40.0 fan=OFF</td>
+            </tr>
+        
+            <tr>
+                <td><strong>T07</strong></td>
+                <td>Abnormal Maximum Valid DHT22 Range</td>
+                <td><span class="badge badge-cat">abnormal</span></td>
+                <td><span class="badge badge-pass">✓ PASS</span></td>
+                <td>6.7s</td>
+                <td style="font-family: monospace; font-size: 12px;">[INFO] BOOT<br>[ALARM] OVERHEAT<br>temp=80.0 fan=ON</td>
+            </tr>
+        
+            <tr>
+                <td><strong>T08</strong></td>
+                <td>Sensor Failure Disconnected</td>
+                <td><span class="badge badge-cat">sensor_failure</span></td>
+                <td><span class="badge badge-fail">✗ FAIL</span></td>
+                <td>24.5s</td>
+                <td style="font-family: monospace; font-size: 12px;">[INFO] BOOT<br>temp=nan fan=OFF (x9)</td>
+            </tr>
+        
+            <tr>
+                <td><strong>T09</strong></td>
+                <td>Thermal Recovery from Overheat</td>
+                <td><span class="badge badge-cat">recovery</span></td>
+                <td><span class="badge badge-pass">✓ PASS</span></td>
+                <td>9.3s</td>
+                <td style="font-family: monospace; font-size: 12px;">[INFO] BOOT<br>[ALARM] OVERHEAT<br>temp=65.0 fan=ON<br><span style='color:#94A3B8;'>... +1 more lines</span></td>
+            </tr>
+        
+            <tr>
+                <td><strong>T10</strong></td>
+                <td>Hysteresis Sequence Step to 29.0 C</td>
+                <td><span class="badge badge-cat">sequence</span></td>
+                <td><span class="badge badge-fail">✗ FAIL</span></td>
+                <td>25.0s</td>
+                <td style="font-family: monospace; font-size: 12px;">[INFO] BOOT<br>temp=31.0 fan=ON<br>temp=29.0 fan=OFF (x8)</td>
+            </tr>
+        
+            <tr>
+                <td><strong>T11</strong></td>
+                <td>Hysteresis Sequence Step to 28.0 C</td>
+                <td><span class="badge badge-cat">sequence</span></td>
+                <td><span class="badge badge-pass">✓ PASS</span></td>
+                <td>9.7s</td>
+                <td style="font-family: monospace; font-size: 12px;">[INFO] BOOT<br>temp=31.0 fan=ON<br>temp=28.0 fan=OFF</td>
+            </tr>
+        
+            <tr>
+                <td><strong>T12</strong></td>
+                <td>Hysteresis Boundary Step to 27.9 C</td>
+                <td><span class="badge badge-cat">sequence</span></td>
+                <td><span class="badge badge-pass">✓ PASS</span></td>
+                <td>9.7s</td>
+                <td style="font-family: monospace; font-size: 12px;">[INFO] BOOT<br>temp=31.0 fan=ON<br>temp=27.9 fan=OFF</td>
+            </tr>
+        
+            <tr>
+                <td><strong>T13</strong></td>
+                <td>Overheat Alarm Trigger</td>
+                <td><span class="badge badge-cat">combination</span></td>
+                <td><span class="badge badge-pass">✓ PASS</span></td>
+                <td>7.4s</td>
+                <td style="font-family: monospace; font-size: 12px;">[INFO] BOOT<br>[ALARM] OVERHEAT<br>temp=60.0 fan=ON</td>
+            </tr>
+        
+            <tr>
+                <td><strong>T14</strong></td>
+                <td>Multi-Step Fluctuation Combination</td>
+                <td><span class="badge badge-cat">combination</span></td>
+                <td><span class="badge badge-pass">✓ PASS</span></td>
+                <td>13.0s</td>
+                <td style="font-family: monospace; font-size: 12px;">[INFO] BOOT<br>temp=26.0 fan=OFF<br>temp=32.0 fan=ON<br><span style='color:#94A3B8;'>... +2 more lines</span></td>
+            </tr>
+        
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

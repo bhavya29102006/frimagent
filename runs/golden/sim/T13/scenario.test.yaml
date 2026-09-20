@@ -1,0 +1,10 @@
+name: 'Overheat Alarm Trigger'
+version: 1
+steps:
+- wait-serial: '[INFO] BOOT'
+- set-control:
+    part-id: 'dht1'
+    control: 'temperature'
+    value: 60
+- wait-serial: '[ALARM] OVERHEAT'
+- wait-serial: 'temp=60.0 fan=ON'

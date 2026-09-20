@@ -1,0 +1,14 @@
+name: 'Thermal Recovery from Overheat'
+version: 1
+steps:
+- wait-serial: '[INFO] BOOT'
+- set-control:
+    part-id: 'dht1'
+    control: 'temperature'
+    value: 65
+- wait-serial: '[ALARM] OVERHEAT'
+- set-control:
+    part-id: 'dht1'
+    control: 'temperature'
+    value: 25
+- wait-serial: 'temp=25.0 fan=OFF'

@@ -1,0 +1,11 @@
+Wokwi CLI v0.27.1 (ffde06bde1ae)
+Connected to Wokwi Simulation API 1.0.0-20260915-ga351c095
+Starting simulation...
+[INFO] BOOT
+[Thermal Recovery from Overheat] Expected text matched: "[INFO] BOOT"
+[ALARM] OVERHEAT
+[Thermal Recovery from Overheat] Expected text matched: "[ALARM] OVERHEAT"
+[DATA] temp=65.0 fan=ON
+[DATA] temp=25.0 fan=OFF
+[Thermal Recovery from Overheat] Expected text matched: "temp=25.0 fan=OFF"
+[Thermal Recovery from Overheat] Scenario completed successfully

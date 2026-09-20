@@ -1,0 +1,83 @@
+{
+  "summary": "Fan controller firmware using a DHT22 temperature sensor and an output pin for the fan, featuring threshold control, overheat alarms, and serial telemetry.",
+  "inputs": [
+    "DHT22 temperature sensor on pin 2"
+  ],
+  "outputs": [
+    "Fan (LED) on pin 13",
+    "Serial output at 9600 baud"
+  ],
+  "constants": {
+    "DHTPIN": "2",
+    "DHTTYPE": "DHT22",
+    "FAN_PIN": "13"
+  },
+  "states": [
+    "fanOn = true",
+    "fanOn = false"
+  ],
+  "error_handling": [
+    "Spec requires sensor fail detection and fail-safe, but it is not implemented in the source code."
+  ],
+  "communication": [
+    "Serial baud rate: 9600",
+    "Boot message: [INFO] BOOT",
+    "Periodic data message: [DATA] temp=<x.x> fan=<ON|OFF>",
+    "Alarm message: [ALARM] OVERHEAT"
+  ],
+  "spec_rules": [
+    {
+      "id": "R1",
+      "text": "Fan is ON when temperature >= 30.0 C.",
+      "source_lines": [
+        44,
+        45
+      ],
+      "confidence": "spec"
+    },
+    {
+      "id": "R2",
+      "text": "Once ON, the fan turns OFF only when temperature <= 28.0 C (2 C hysteresis).",
+      "source_lines": [],
+      "confidence": "spec"
+    },
+    {
+      "id": "R3",
+      "text": "Fan is OFF at boot and stays OFF while temperature is below 30.0 C.",
+      "source_lines": [
+        27,
+        32,
+        46,
+        47
+      ],
+      "confidence": "spec"
+    },
+    {
+      "id": "R4",
+      "text": "Temperature >= 60.0 C prints \"[ALARM] OVERHEAT\" and the fan is ON.",
+      "source_lines": [
+        41,
+        42,
+        43
+      ],
+      "confidence": "spec"
+    },
+    {
+      "id": "R5",
+      "text": "If the sensor read fails, print \"[ERROR] SENSOR_FAIL\" and turn the fan ON (fail-safe).",
+      "source_lines": [],
+      "confidence": "spec"
+    },
+    {
+      "id": "R6",
+      "text": "When the sensor recovers, print \"[INFO] SENSOR_OK\" and resume normal control.",
+      "source_lines": [],
+      "confidence": "spec"
+    }
+  ],
+  "risk_areas": [
+    "Hysteresis requirement (R2) is missing from the code; instead of 28.0 C hysteresis, line 44 uses t > 30.0 and line 46 uses t < 30.0.",
+    "Sensor failure error handling (R5 and R6) is completely unimplemented; dht.readTemperature() returning NaN is not checked.",
+    "Potential floating-point comparison issue at exact threshold boundaries."
+  ]
+}

@@ -1,0 +1,20 @@
+name: 'Multi-Step Fluctuation Combination'
+version: 1
+steps:
+- wait-serial: '[INFO] BOOT'
+- set-control:
+    part-id: 'dht1'
+    control: 'temperature'
+    value: 26
+- wait-serial: 'temp=26.0 fan=OFF'
+- set-control:
+    part-id: 'dht1'
+    control: 'temperature'
+    value: 32
+- wait-serial: 'temp=32.0 fan=ON'
+- set-control:
+    part-id: 'dht1'
+    control: 'temperature'
+    value: 61
+- wait-serial: '[ALARM] OVERHEAT'
+- wait-serial: 'temp=61.0 fan=ON'

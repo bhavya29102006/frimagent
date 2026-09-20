@@ -258,3 +258,38 @@ def test_run_all_runner_exception_never_aborts_run(tmp_path: Path):
     assert len(results_data) == 3
     assert results_data[0]["status"] == "ERROR"
     assert "Unexpected runner crash" in results_data[0]["error_message"]
+
+
+def test_run_all_with_followup(tmp_path: Path):
+    source_dir = _create_fixture_data(tmp_path)
+    runs_dir = tmp_path / "runs"
+
+    executed = []
+
+    def mock_runner(test: TestCase, firmware_dir, run_dir) -> TestResult:
+        executed.append(test.id)
+        # T02 fails (triggers follow-up)
+        status = "FAIL" if test.id == "T02" else "PASS"
+        exit_code = 42 if test.id == "T02" else 0
+        return TestResult(
+            test_id=test.id,
+            status=status,
+            exit_code=exit_code,
+            duration_s=2.0,
+            expected=["dummy"],
+            observed_lines=["dummy"],
+            serial_log="",
+        )
+
+    manifest = run_all(
+        run_id="run_followup",
+        source_dir=source_dir,
+        enable_followup=True,
+        runner_fn=mock_runner,
+        runs_base_dir=runs_dir,
+    )
+
+    assert manifest.followup_rounds == 1
+    assert manifest.total_tests > 3
+    assert any(tid.startswith("F") for tid in executed)
+

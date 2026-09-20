@@ -141,3 +141,50 @@ FIRMWARE SOURCE CODE (WITH LINE NUMBERS):
 ```
 
 Perform root-cause analysis and return all findings conforming to the FindingList JSON schema."""
+
+
+FOLLOWUP_SYSTEM_INSTRUCTIONS = """You are an expert autonomous firmware test generation assistant.
+Your job is to generate focused follow-up test cases (probing tests) to investigate failed tests from the initial simulation run.
+
+FOLLOW-UP RULES:
+1. TARGETED PROBING:
+   - For a failed boundary threshold (e.g. 30.0 °C), generate tests immediately adjacent: 29.9 °C, 30.1 °C.
+   - For a failed hysteresis sequence (e.g. 31.0 °C -> 29.0 °C), probe intermediate points: 31.0 °C -> 28.0 °C, 31.0 °C -> 27.9 °C.
+   - For a sensor disconnect failure, test variations in timing or recovery.
+2. CONSTRAINTS:
+   - Generate between 2 and 6 focused test cases.
+   - Set category to "followup" for all generated tests.
+   - Test IDs must start with 'F' (e.g. "F01", "F02", "F03").
+   - Set round to the requested follow-up round (e.g. 1).
+   - Temperatures must be valid DHT22 numbers (-40.0 to 80.0, 1 decimal place).
+   - Serial format must follow firmware specification: "[DATA] temp=<x.x> fan=<ON|OFF>".
+3. OUTPUT: Return valid JSON strictly matching the TestList schema (containing a 'tests' array of TestCase objects).
+"""
+
+
+def make_followup_prompt(
+    failed_tests_summary: str,
+    analysis_json: str,
+    numbered_source: str,
+    round_num: int = 1,
+) -> str:
+    """Generate prompt for creating probing follow-up tests around failures."""
+    return f"""{FOLLOWUP_SYSTEM_INSTRUCTIONS}
+
+ROUND NUMBER: {round_num}
+
+FAILED INITIAL TEST CASES:
+{failed_tests_summary}
+
+FIRMWARE SPECIFICATION & ANALYSIS:
+```json
+{analysis_json}
+```
+
+FIRMWARE SOURCE CODE (WITH LINE NUMBERS):
+```
+{numbered_source}
+```
+
+Generate 2 to 6 targeted follow-up test cases conforming to the TestList JSON schema (category='followup', ids starting with 'F01')."""
+

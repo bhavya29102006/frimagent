@@ -1,0 +1,10 @@
+Wokwi CLI v0.27.1 (ffde06bde1ae)
+Connected to Wokwi Simulation API 1.0.0-20260915-ga351c095
+Starting simulation...
+[INFO] BOOT
+[Hysteresis Boundary Step to 27.9 C] Expected text matched: "[INFO] BOOT"
+[DATA] temp=31.0 fan=ON
+[Hysteresis Boundary Step to 27.9 C] Expected text matched: "temp=31.0 fan=ON"
+[DATA] temp=27.9 fan=OFF
+[Hysteresis Boundary Step to 27.9 C] Expected text matched: "temp=27.9 fan=OFF"
+[Hysteresis Boundary Step to 27.9 C] Scenario completed successfully
