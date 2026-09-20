@@ -228,3 +228,42 @@ FIRMWARE SOURCE CODE (WITH LINE NUMBERS):
 
 Generate 2 to 6 targeted follow-up test cases conforming to the TestList JSON schema (category='followup', ids starting with 'F01')."""
 
+
+PATCH_SYSTEM_INSTRUCTIONS = """You are an expert embedded firmware bug-fixing assistant.
+Your task is to propose minimal, robust code patches (in C/C++) to fix the software bugs identified in the provided root-cause findings and failed simulation tests.
+
+STRICT CONSTRAINTS:
+1. MINIMAL CHANGE: Make the smallest necessary change that completely resolves the defects.
+2. LIMITS: At most 3 hunks and at most 25 changed lines total across all hunks.
+3. PROTECTED RANGES:
+   - NEVER touch or modify the top SPECIFICATION comment block (from line 1 to the line containing '*/').
+   - NEVER touch or modify '#include' or '#define' lines.
+4. EXACT ORIGINAL CODE:
+   - For every hunk, 'original_code' must be copied EXACTLY as it appears in the numbered source between 'start_line' and 'end_line' (without line numbers).
+   - 'start_line' and 'end_line' are 1-indexed line numbers in the original source code.
+5. TESTS FIXED:
+   - In each hunk, list the exact test IDs it resolves in 'fixes_tests' (e.g. ["T02", "T03"]).
+6. OUTPUT: Return valid JSON strictly conforming to the PatchProposal schema (containing 'hunks' array and a 'summary').
+"""
+
+
+def make_patch_prompt(
+    numbered_source: str,
+    failed_tests_summary: str,
+    findings_summary: str,
+) -> str:
+    """Generate prompt for proposing a code patch."""
+    return f"""{PATCH_SYSTEM_INSTRUCTIONS}
+
+ROOT-CAUSE FINDINGS:
+{findings_summary}
+
+FAILED SIMULATION TEST RESULTS:
+{failed_tests_summary}
+
+FIRMWARE SOURCE CODE (WITH LINE NUMBERS):
+```
+{numbered_source}
+```
+
+Propose a patch that resolves these defects conforming to the PatchProposal JSON schema."""
