@@ -10,6 +10,7 @@ from agent.preflight import CheckResult, run_preflight
 def isolate_env(monkeypatch):
     """Prevent load_dotenv from overriding monkeypatched environment variables."""
     monkeypatch.setattr("agent.preflight.load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setattr("agent.runner.load_dotenv", lambda *args, **kwargs: None)
 
 
 def _get_check(results: list[CheckResult], name: str) -> CheckResult:
@@ -25,8 +26,9 @@ def test_preflight_all_present(monkeypatch, tmp_path):
     monkeypatch.setenv("GEMINI_MODEL", "gemini-3.8-flash")
     monkeypatch.setenv("WOKWI_CLI_TOKEN", "test-token-123")
 
-    # Mock wokwi-cli executable found
-    monkeypatch.setattr("shutil.which", lambda cmd: "/usr/local/bin/" + cmd)
+    fake_cli = tmp_path / "wokwi-cli.exe"
+    fake_cli.write_text("bin", encoding="utf-8")
+    monkeypatch.setenv("WOKWI_CLI_PATH", str(fake_cli))
 
     # Create dummy firmware.hex in tmp_path
     hex_dir = tmp_path / "firmware" / "fan_controller" / ".pio" / "build" / "uno"
@@ -43,6 +45,8 @@ def test_preflight_all_present(monkeypatch, tmp_path):
         assert "test-key-abc" not in r.hint
         assert "test-token-123" not in r.detail
         assert "test-token-123" not in r.hint
+        assert str(fake_cli) not in r.detail
+        assert str(fake_cli) not in r.hint
 
 
 def test_missing_gemini_api_key(monkeypatch, tmp_path):
@@ -87,12 +91,59 @@ def test_missing_wokwi_cli_token(monkeypatch, tmp_path):
     assert "WOKWI_CLI_TOKEN" in check.hint
 
 
+def test_wokwi_cli_found_via_env_path(monkeypatch, tmp_path):
+    """wokwi-cli is found via WOKWI_CLI_PATH environment variable."""
+    fake_cli = tmp_path / "wokwi-cli.exe"
+    fake_cli.write_text("bin", encoding="utf-8")
+    monkeypatch.setenv("WOKWI_CLI_PATH", str(fake_cli))
+
+    results = run_preflight(project_root=tmp_path)
+    check = _get_check(results, "wokwi-cli")
+    assert check.ok is True
+    assert check.detail == "found"
+    assert str(fake_cli) not in check.detail
+    assert str(fake_cli) not in check.hint
+
+
+def test_wokwi_cli_found_via_which(monkeypatch, tmp_path):
+    """wokwi-cli is found via shutil.which if WOKWI_CLI_PATH is not set."""
+    monkeypatch.delenv("WOKWI_CLI_PATH", raising=False)
+    fake_which = tmp_path / "wokwi-cli"
+    fake_which.write_text("bin", encoding="utf-8")
+    monkeypatch.setattr("shutil.which", lambda cmd: str(fake_which))
+
+    results = run_preflight(project_root=tmp_path)
+    check = _get_check(results, "wokwi-cli")
+    assert check.ok is True
+    assert check.detail == "found"
+
+
+def test_wokwi_cli_found_via_home_bin(monkeypatch, tmp_path):
+    """wokwi-cli is found in ~/.wokwi/bin if neither WOKWI_CLI_PATH nor which finds it."""
+    monkeypatch.delenv("WOKWI_CLI_PATH", raising=False)
+    monkeypatch.setattr("shutil.which", lambda cmd: None)
+
+    fake_home = tmp_path / "home"
+    bin_dir = fake_home / ".wokwi" / "bin"
+    bin_dir.mkdir(parents=True)
+    fake_cli = bin_dir / "wokwi-cli.exe"
+    fake_cli.write_text("bin", encoding="utf-8")
+    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+
+    results = run_preflight(project_root=tmp_path)
+    check = _get_check(results, "wokwi-cli")
+    assert check.ok is True
+    assert check.detail == "found"
+
+
 def test_missing_wokwi_cli_binary(monkeypatch, tmp_path):
-    """When wokwi-cli executable is not on PATH, check fails."""
-    monkeypatch.setattr(
-        "shutil.which",
-        lambda cmd: None if cmd == "wokwi-cli" else "/bin/" + cmd,
-    )
+    """When wokwi-cli is not found anywhere, check fails with install hint."""
+    monkeypatch.delenv("WOKWI_CLI_PATH", raising=False)
+    monkeypatch.setattr("shutil.which", lambda cmd: None)
+    fake_empty_home = tmp_path / "empty_home"
+    fake_empty_home.mkdir()
+    monkeypatch.setattr("pathlib.Path.home", lambda: fake_empty_home)
+
     results = run_preflight(project_root=tmp_path)
     check = _get_check(results, "wokwi-cli")
     assert check.ok is False
@@ -149,7 +200,6 @@ def test_pio_missing(monkeypatch, tmp_path):
 
 def test_firmware_hex_missing(monkeypatch, tmp_path):
     """When firmware.hex does not exist, check fails."""
-    # tmp_path does not contain firmware.hex
     results = run_preflight(project_root=tmp_path)
     check = _get_check(results, "firmware.hex")
     assert check.ok is False
@@ -158,12 +208,15 @@ def test_firmware_hex_missing(monkeypatch, tmp_path):
 
 
 def test_keys_never_leaked(monkeypatch, tmp_path):
-    """Secret values are NEVER present in check results."""
+    """Secret values and paths are NEVER present in check results."""
     secret_key = "SECRET_API_KEY_99999"
     secret_token = "SECRET_TOKEN_88888"
+    fake_cli = tmp_path / "wokwi-cli.exe"
+    fake_cli.write_text("bin", encoding="utf-8")
 
     monkeypatch.setenv("GEMINI_API_KEY", secret_key)
     monkeypatch.setenv("WOKWI_CLI_TOKEN", secret_token)
+    monkeypatch.setenv("WOKWI_CLI_PATH", str(fake_cli))
 
     results = run_preflight(project_root=tmp_path)
 
@@ -174,6 +227,9 @@ def test_keys_never_leaked(monkeypatch, tmp_path):
         assert secret_token not in item.name
         assert secret_token not in item.detail
         assert secret_token not in item.hint
-        # Verify str representation also doesn't contain the secret
+        assert str(fake_cli) not in item.name
+        assert str(fake_cli) not in item.detail
+        assert str(fake_cli) not in item.hint
         assert secret_key not in str(item)
         assert secret_token not in str(item)
+        assert str(fake_cli) not in str(item)

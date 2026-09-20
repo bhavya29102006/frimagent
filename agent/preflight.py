@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 from dotenv import load_dotenv
+from agent.runner import find_wokwi_cli
 
 
 @dataclass
@@ -22,7 +23,7 @@ class CheckResult:
 def run_preflight(project_root: Path | None = None) -> list[CheckResult]:
     """Run all preflight checks and return their results.
 
-    NEVER prints or returns key values; detail for secrets is only 'set' or 'missing'.
+    NEVER prints or returns key values or binary paths; detail is only 'set', 'found', or 'missing'.
     """
     load_dotenv()
 
@@ -94,9 +95,9 @@ def run_preflight(project_root: Path | None = None) -> list[CheckResult]:
             )
         )
 
-    # 4. wokwi-cli on PATH
-    wokwi_path = shutil.which("wokwi-cli")
-    if wokwi_path:
+    # 4. wokwi-cli executable check (WOKWI_CLI_PATH -> shutil.which -> ~/.wokwi/bin)
+    try:
+        find_wokwi_cli()
         results.append(
             CheckResult(
                 name="wokwi-cli",
@@ -105,7 +106,7 @@ def run_preflight(project_root: Path | None = None) -> list[CheckResult]:
                 hint="",
             )
         )
-    else:
+    except FileNotFoundError:
         results.append(
             CheckResult(
                 name="wokwi-cli",
