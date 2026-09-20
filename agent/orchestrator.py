@@ -327,6 +327,13 @@ def run_all(
     # 7. Finalize RunManifest
     manifest.finished_at = datetime.now(timezone.utc).isoformat()
     manifest.status = "stopped" if stopped else "done"
+    manifest.passed = sum(1 for r in results if r.status == "PASS")
+    manifest.failed = sum(1 for r in results if r.status == "FAIL")
+    manifest.errors = sum(1 for r in results if r.status == "ERROR")
+    if not stopped:
+        manifest.total_tests = len(results)
+    else:
+        manifest.total_tests = len(tests)
 
     (run_dir / "manifest.json").write_text(
         manifest.model_dump_json(indent=2), encoding="utf-8"

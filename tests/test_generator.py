@@ -310,3 +310,67 @@ def test_generate_tests_no_topup_when_already_covered(tmp_path):
     assert mock_client.models.generate_content.call_count == 1
 
 
+def test_generate_tests_enforces_exact_target_count(tmp_path):
+    """When target_count=16 is specified, generate_tests returns exactly 16 tests covering all categories."""
+    valid_tests = _make_valid_test_suite()  # 14 tests
+    # Add 4 extra tests (total 18)
+    for i in range(15, 19):
+        valid_tests.append(
+            TestCase(
+                id=f"T{i:02d}",
+                name=f"Extra Test {i}",
+                category="boundary",
+                steps=[TestStep(set_temp=30.0, wait_ms=2500)],
+                expect=[Expectation(serial_contains="fan=ON")],
+                rationale="Extra boundary",
+                round=0,
+            )
+        )
+    assert len(valid_tests) == 18
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.text = TestList(tests=valid_tests).model_dump_json()
+    mock_client.models.generate_content.return_value = mock_resp
+
+    analysis = FirmwareAnalysis(
+        summary="Test analysis",
+        inputs=["pin 2"],
+        outputs=["pin 13"],
+        constants={},
+        states=[],
+        error_handling=[],
+        communication=[],
+        spec_rules=[],
+        risk_areas=[],
+    )
+
+    result = generate_tests(
+        analysis=analysis,
+        source_code="void setup() {}",
+        client=mock_client,
+        model="gemini-test",
+        cache_dir=tmp_path,
+        use_cache=False,
+        target_count=16,
+    )
+
+    # Must be trimmed to exactly 16
+    assert len(result) == 16
+    # Must preserve sequential IDs T01..T16
+    assert [t.id for t in result] == [f"T{i:02d}" for i in range(1, 17)]
+    # All required categories must be preserved
+    categories = {t.category for t in result}
+    assert categories == {
+        "normal",
+        "boundary",
+        "abnormal",
+        "sensor_failure",
+        "recovery",
+        "sequence",
+        "combination",
+    }
+    assert sum(1 for t in result if t.category == "boundary") >= 4
+
+
+

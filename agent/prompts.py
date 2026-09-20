@@ -80,7 +80,15 @@ FIRMWARE SOURCE CODE (WITH LINE NUMBERS):
 {numbered_source}
 ```
 
-Generate 12 to 20 test cases conforming to the TestList JSON schema (containing the 'tests' array)."""
+Generate EXACTLY 16 test cases (T01 through T16) conforming to the TestList JSON schema (containing the 'tests' array), ensuring complete category coverage:
+- normal (at least 1)
+- boundary (at least 4: including 29.9, 30.0, 30.1, 59.9, 60.0)
+- abnormal (at least 1: extremes -40.0, 80.0)
+- sensor_failure (at least 1: sensor disconnected)
+- recovery (at least 1)
+- sequence (at least 1: hysteresis at 28.1, 28.0, 27.9 after being ON)
+- combination (at least 1: rapid change 25 -> 45 -> 25)
+Total must be EXACTLY 16 tests."""
 
 
 def make_generator_topup_prompt(
@@ -141,7 +149,7 @@ PREVIOUS OUTPUT:
 {previous_json}
 ```
 
-Please fix all validation errors and return a corrected TestList JSON with 12 to 20 tests."""
+Please fix all validation errors and return a corrected TestList JSON with EXACTLY 16 tests (T01 to T16)."""
 
 
 ROOTCAUSE_SYSTEM_INSTRUCTIONS = """You are an expert embedded firmware debugging and root-cause analysis assistant.

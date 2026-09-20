@@ -64,6 +64,54 @@ def validate_test_cases(
     return errors
 
 
+def normalize_test_suite(
+    tests: list[TestCase],
+    target_count: int = 16,
+) -> list[TestCase]:
+    """Normalize test suite to exactly target_count tests while preserving all required categories.
+
+    Requirements preserved:
+    - boundary: at least 4
+    - normal, abnormal, sensor_failure, recovery, sequence, combination: at least 1 each
+    """
+    if len(tests) == target_count:
+        for i, t in enumerate(tests, 1):
+            t.id = f"T{i:02d}"
+        return tests
+
+    min_required = {
+        "boundary": 4,
+        "normal": 1,
+        "abnormal": 1,
+        "sensor_failure": 1,
+        "recovery": 1,
+        "sequence": 1,
+        "combination": 1,
+    }
+
+    result = list(tests)
+
+    # Prune surplus tests if count > target_count
+    if len(result) > target_count:
+        idx = len(result) - 1
+        while len(result) > target_count and idx >= 0:
+            cat = result[idx].category
+            current_cat_count = sum(1 for t in result if t.category == cat)
+            min_for_cat = min_required.get(cat, 1)
+            if current_cat_count > min_for_cat:
+                result.pop(idx)
+            idx -= 1
+
+        while len(result) > target_count:
+            result.pop()
+
+    # Re-number sequentially T01..T16
+    for i, t in enumerate(result, 1):
+        t.id = f"T{i:02d}"
+
+    return result
+
+
 def generate_tests(
     analysis: FirmwareAnalysis,
     source_code: str,
@@ -71,11 +119,12 @@ def generate_tests(
     model: str | None = None,
     use_cache: bool = True,
     cache_dir: Path | None = None,
+    target_count: int | None = None,
 ) -> list[TestCase]:
-    """Generate and validate 12 to 20 test cases from FirmwareAnalysis and source code.
+    """Generate and validate test cases from FirmwareAnalysis and source code.
 
     Enforces:
-    - 12 to 20 tests covering at least 6 categories initially.
+    - Target count (e.g. 16 tests) covering all 7 categories.
     - Coverage check ensuring every required category (normal, boundary, abnormal,
       sensor_failure, recovery, sequence, combination) has >= 1 test and boundary has >= 4.
     - Makes ONE targeted top-up call if any required category or boundary count is missing.
@@ -163,5 +212,8 @@ def generate_tests(
             raise ValueError(
                 f"Generated test suite failed validation after top-up: {'; '.join(post_topup_errors)}"
             )
+
+    if target_count is not None:
+        tests = normalize_test_suite(tests, target_count=target_count)
 
     return tests

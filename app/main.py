@@ -61,6 +61,11 @@ from agent.preflight import run_preflight
 from agent.reporter import generate_reports
 from agent.rootcause import run_root_cause
 from agent.runner import run_test
+from agent.syntax_fixer import (
+    auto_fix_syntax_errors,
+    check_firmware_syntax,
+    restore_firmware_backup,
+)
 
 st.set_page_config(
     page_title="FirmAgent — Autonomous Firmware Testing",
@@ -234,7 +239,7 @@ def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_even
 
             shared_state["status"] = "2. Test Generation: Synthesizing test cases..."
             shared_state["progress"] = 25
-            tests = generate_tests(analysis, source_code)
+            tests = generate_tests(analysis, source_code, target_count=16)
             (dev_dir / "tests.json").write_text(
                 TestList(tests=tests).model_dump_json(indent=2),
                 encoding="utf-8",
@@ -269,13 +274,14 @@ def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_even
             elif ev.get("type") == "followup_started":
                 shared_state["status"] = f"3. Follow-up: Probing failures with {ev.get('count')} tests..."
 
+        followup_opt = shared_state.get("enable_followup", False)
         manifest = run_all(
             run_id=run_id,
             source_dir=dev_dir,
             firmware_dir=FIRMWARE_DIR,
             on_event=on_sim_event,
             stop_event=stop_event,
-            enable_followup=True,
+            enable_followup=followup_opt,
         )
         new_run_dir = RUNS_DIR / manifest.run_id
 
@@ -386,7 +392,7 @@ with st.sidebar:
                 with st.spinner("Analyzing firmware & generating tests..."):
                     source_code = FIRMWARE_SRC_FILE.read_text(encoding="utf-8")
                     analysis = analyze_firmware(source_code)
-                    tests = generate_tests(analysis, source_code)
+                    tests = generate_tests(analysis, source_code, target_count=16)
                     dev_dir = RUNS_DIR / "dev"
                     dev_dir.mkdir(parents=True, exist_ok=True)
                     (dev_dir / "analysis.json").write_text(
@@ -465,6 +471,83 @@ with tab_run:
             + "\n\n💡 *Hint:* You can still click **🌟 Load Golden Run (Replay)** in the sidebar to inspect a complete pre-recorded test run offline."
         )
 
+    # Firmware Target & Pre-Flight Syntax Check
+    with st.expander("🔌 Target Firmware & Syntax Pre-Flight Validation", expanded=True):
+        st.markdown(
+            "Upload or verify the target Arduino/C++ firmware before testing. "
+            "If the source has syntax errors (missing semicolons, braces, typos), click **🛠️ Auto-Fix Syntax Errors** to diagnose and repair them automatically with Gemini."
+        )
+
+        fw_col1, fw_col2 = st.columns([3, 2])
+
+        with fw_col1:
+            uploaded_fw = st.file_uploader(
+                "Upload Custom Firmware Source (.cpp, .ino, .c)",
+                type=["cpp", "ino", "c", "h"],
+                key="fw_upload_file",
+                help="Upload a target firmware file. It will replace src/main.cpp with a backup saved to main.cpp.bak.",
+            )
+            if uploaded_fw is not None:
+                if st.session_state.get("last_uploaded_fw") != uploaded_fw.name:
+                    try:
+                        fw_content = uploaded_fw.getvalue().decode("utf-8", errors="replace")
+                        if FIRMWARE_SRC_FILE.is_file():
+                            bak_path = FIRMWARE_SRC_FILE.with_suffix(".cpp.bak")
+                            bak_path.write_text(FIRMWARE_SRC_FILE.read_text(encoding="utf-8"), encoding="utf-8")
+                        FIRMWARE_SRC_FILE.write_text(fw_content, encoding="utf-8")
+                        st.session_state["last_uploaded_fw"] = uploaded_fw.name
+                        st.success(f"✅ Uploaded `{uploaded_fw.name}` to `src/main.cpp` (backup saved to `main.cpp.bak`).")
+                    except Exception as up_exc:
+                        st.error(f"Failed to save uploaded firmware: {up_exc}")
+
+        with fw_col2:
+            st.markdown("**Syntax Diagnostics & Auto-Repair**")
+            syntax_c1, syntax_c2 = st.columns(2)
+            with syntax_c1:
+                check_syntax_clicked = st.button("🔍 Check Syntax", use_container_width=True)
+            with syntax_c2:
+                fix_syntax_clicked = st.button("🛠️ Fix Syntax Errors", type="secondary", use_container_width=True)
+
+        if check_syntax_clicked:
+            with st.spinner("Checking firmware compilation with PlatformIO..."):
+                syn_ok, syn_log = check_firmware_syntax(FIRMWARE_DIR)
+                if syn_ok:
+                    st.success("✅ **Firmware syntax is clean!** Compilation succeeded with 0 errors.")
+                else:
+                    st.error("❌ **Firmware compilation failed with syntax errors:**")
+                    st.code(syn_log, language="text")
+                    st.info("💡 Click **🛠️ Fix Syntax Errors** above to automatically diagnose and repair these errors.")
+
+        if fix_syntax_clicked:
+            with st.spinner("Diagnosing syntax errors and auto-repairing with Gemini..."):
+                try:
+                    fix_res = auto_fix_syntax_errors(FIRMWARE_DIR)
+                    if fix_res["status"] == "CLEAN":
+                        st.success("✅ **Firmware is already clean!** Compilation succeeded with 0 errors.")
+                    elif fix_res["status"] == "FIXED":
+                        st.success("🎉 **Syntax errors successfully repaired!** Firmware now compiles cleanly with 0 errors.")
+                        if fix_res.get("explanation"):
+                            st.markdown(f"**Fix Applied:** {fix_res['explanation']}")
+                        if fix_res.get("errors_addressed"):
+                            for err_desc in fix_res["errors_addressed"]:
+                                st.markdown(f"- ✅ {err_desc}")
+                        if fix_res.get("diff"):
+                            with st.expander("📝 View Applied Syntax Diff", expanded=True):
+                                st.code(fix_res["diff"], language="diff")
+                        time.sleep(1)
+                    else:
+                        st.error("⚠️ **Could not automatically resolve all syntax errors.**")
+                        st.code(fix_res.get("error_log", "Unknown compiler error"), language="text")
+                except Exception as syn_exc:
+                    cause, hint = classify_error(syn_exc)
+                    st.error(f"❌ Syntax repair failed: {cause}\n\n💡 *Hint:* {hint}")
+
+        with st.expander("📄 View Active Firmware Source (`firmware/fan_controller/src/main.cpp`)", expanded=False):
+            if FIRMWARE_SRC_FILE.is_file():
+                st.code(FIRMWARE_SRC_FILE.read_text(encoding="utf-8"), language="cpp")
+            else:
+                st.caption("No firmware source file found.")
+
     # Action Buttons: Run & Stop
     col_start, col_stop = st.columns([2, 1])
     is_running = st.session_state.get("pipeline_running", False)
@@ -485,6 +568,13 @@ with tab_run:
             disabled=not is_running,
             help="Signals the simulation runner to stop after finishing the current test.",
         )
+
+    enable_followup_val = st.checkbox(
+        "Enable Autonomous Follow-Up Probing (+4 exploratory failure tests)",
+        value=False,
+        key="enable_followup_toggle",
+        help="When enabled, if failures are detected, FirmAgent generates 4 targeted follow-up test cases (F01-F04) to probe root causes, expanding the suite from 16 to 20 tests.",
+    )
 
     # Progress Stepper Display
     stepper_cols = st.columns(5)
@@ -518,6 +608,7 @@ with tab_run:
                 "manifest": None,
                 "error": None,
                 "run_id": new_run_id,
+                "enable_followup": enable_followup_val,
             }
             st.session_state["pipeline_shared"] = shared_data
             st.session_state["pipeline_running"] = True
@@ -561,30 +652,52 @@ with tab_run:
 
     # Current Run Status & Summary Banner (TASK-021 requirement 7)
     manifest_data = load_run_file("manifest.json")
+    results_data = load_run_file("results.json")
     if manifest_data:
         try:
             m = RunManifest.model_validate(manifest_data)
             st.divider()
 
+            # Synchronize actual counts directly from results.json
+            if results_data:
+                r_objs = [TestResult.model_validate(r) for r in results_data]
+                p_cnt = sum(1 for r in r_objs if r.status == "PASS")
+                f_cnt = sum(1 for r in r_objs if r.status == "FAIL")
+                e_cnt = sum(1 for r in r_objs if r.status == "ERROR")
+                completed_cnt = len(r_objs)
+            else:
+                p_cnt = m.passed
+                f_cnt = m.failed
+                e_cnt = m.errors
+                completed_cnt = p_cnt + f_cnt + e_cnt
+
+            total_display = m.total_tests
+
             # Summary banner
             if m.status == "stopped":
-                completed_cnt = m.passed + m.failed + m.errors
-                st.info(f"⏹ **Run stopped early: {completed_cnt} of {m.total_tests} tests completed, {m.failed} failure(s) found.**")
-            elif m.failed == 0 and m.errors == 0:
-                st.success(f"✅ **Run complete: {m.total_tests} tests executed, all passed (0 failures found).**")
+                st.info(f"⏹ **Run stopped early: {completed_cnt} of {total_display} tests completed ({p_cnt} passed, {f_cnt} failed, {e_cnt} errors).**")
+            elif f_cnt == 0 and e_cnt == 0:
+                st.success(f"✅ **Run complete: {completed_cnt} tests executed, all passed (0 failures found).**")
             else:
-                f_str = f"{m.failed} failure{'s' if m.failed != 1 else ''}"
-                e_str = f", {m.errors} simulator error{'s' if m.errors != 1 else ''}" if m.errors > 0 else ""
-                st.warning(f"⚠️ **Run complete: {m.total_tests} tests, {f_str}{e_str} found.**")
+                f_str = f"{f_cnt} failure{'s' if f_cnt != 1 else ''}"
+                e_str = f", {e_cnt} simulator error{'s' if e_cnt != 1 else ''}" if e_cnt > 0 else ""
+                st.warning(f"⚠️ **Run complete: {completed_cnt} tests executed, {f_str}{e_str} found.**")
 
             st.subheader(f"Current Run Status: `{active_run_dir.name}`")
             c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Total Tests", m.total_tests)
-            c2.metric("Passed", f"✅ {m.passed}")
-            c3.metric("Failed", f"❌ {m.failed}")
-            c4.metric("Errors", f"⚠ {m.errors}")
-            status_icon = "✅" if m.status == "done" else ("⏹" if m.status == "stopped" else "⏳")
-            c5.metric("Status", f"{status_icon} {m.status.upper()}")
+            if m.status == "stopped" and completed_cnt < total_display:
+                c1.metric("Total Planned", total_display)
+                c2.metric("Executed", f"{completed_cnt} / {total_display}")
+                c3.metric("Passed", f"✅ {p_cnt}")
+                c4.metric("Failed", f"❌ {f_cnt}")
+                c5.metric("Status", "⏹ STOPPED")
+            else:
+                c1.metric("Total Tests", completed_cnt)
+                c2.metric("Passed", f"✅ {p_cnt}")
+                c3.metric("Failed", f"❌ {f_cnt}")
+                c4.metric("Errors", f"⚠ {e_cnt}")
+                status_icon = "✅" if m.status == "done" else ("⏹" if m.status == "stopped" else "⏳")
+                c5.metric("Status", f"{status_icon} {m.status.upper()}")
 
             # Quick Re-run Section in Tab 1 (TASK-021 requirement 3)
             tests_data = load_run_file("tests.json")
@@ -970,27 +1083,33 @@ with tab_report:
 
             st.subheader("Autonomous Test & Defect Report")
 
-            # Summary banner (TASK-021 requirement 7)
+            # Summary banner & Verified Counts (guarantees Total == Passed + Failed + Errors)
+            p_cnt = sum(1 for r in results if r.status == "PASS")
+            f_cnt = sum(1 for r in results if r.status == "FAIL")
+            e_cnt = sum(1 for r in results if r.status == "ERROR")
+            executed_cnt = len(results)
+            total_planned = manifest.total_tests
+
             if manifest.status == "stopped":
-                st.info(f"⏹ **Run stopped early: {manifest.passed + manifest.failed + manifest.errors} of {manifest.total_tests} tests completed, {manifest.failed} failure(s) found.**")
-            elif manifest.failed == 0 and manifest.errors == 0:
-                st.success(f"✅ **Executive Summary: {manifest.total_tests} tests executed, 0 failures found.**")
+                st.info(f"⏹ **Run stopped early: {executed_cnt} of {total_planned} tests completed ({p_cnt} passed, {f_cnt} failed, {e_cnt} errors).**")
+            elif f_cnt == 0 and e_cnt == 0:
+                st.success(f"✅ **Executive Summary: {executed_cnt} tests executed, all passed (0 failures found).**")
             else:
-                fail_label = f"{manifest.failed} failure{'s' if manifest.failed != 1 else ''}"
-                err_label = f", {manifest.errors} error{'s' if manifest.errors != 1 else ''}" if manifest.errors > 0 else ""
-                st.warning(f"⚠️ **Executive Summary: {manifest.total_tests} tests, {fail_label}{err_label} found.**")
+                fail_label = f"{f_cnt} failure{'s' if f_cnt != 1 else ''}"
+                err_label = f", {e_cnt} error{'s' if e_cnt != 1 else ''}" if e_cnt > 0 else ""
+                st.warning(f"⚠️ **Executive Summary: {executed_cnt} tests executed, {fail_label}{err_label} found.**")
 
             # Metric Cards
             c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Tests Executed", manifest.total_tests)
+            c1.metric("Tests Executed", executed_cnt)
             pass_rate = (
-                f"{(manifest.passed / manifest.total_tests * 100):.0f}%"
-                if manifest.total_tests
+                f"{(p_cnt / executed_cnt * 100):.0f}%"
+                if executed_cnt
                 else "0%"
             )
-            c2.metric("Passed", manifest.passed, delta=pass_rate)
-            c3.metric("Failed", manifest.failed)
-            c4.metric("Errors", manifest.errors)
+            c2.metric("Passed", p_cnt, delta=pass_rate)
+            c3.metric("Failed", f_cnt)
+            c4.metric("Errors", e_cnt)
             c5.metric("Defects Identified", len(findings))
 
             st.divider()
