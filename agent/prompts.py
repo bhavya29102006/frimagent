@@ -32,32 +32,29 @@ Generate between 12 and 20 targeted test cases based on the provided Firmware An
 TEST SUITE RULES:
 1. QUANTITY & CATEGORIES: Generate between 12 and 20 tests. You MUST cover ALL 7 of these categories:
    - "normal": standard operating conditions (e.g. room temp 25.0 °C -> fan OFF; hot temp 45.0 °C -> fan ON).
-   - "boundary": temperatures exactly on or immediately adjacent to thresholds (30.0 °C, 29.9 °C, 30.1 °C).
-   - "abnormal": extreme valid DHT22 sensor readings (-40.0 °C, 80.0 °C) or rapid shifts.
+   - "boundary": temperatures exactly on or immediately adjacent to thresholds (at least 4 boundary tests required: 29.9 °C, 30.0 °C, 30.1 °C, 59.9 °C, 60.0 °C).
+   - "abnormal": extreme valid DHT22 sensor readings (-40.0 °C, 80.0 °C) and rapid thermal changes (25.0 °C -> 45.0 °C -> 25.0 °C).
    - "sensor_failure": sensor disconnected test with sensor="disconnected", expecting fail-safe "[ERROR] SENSOR_FAIL" and "fan=ON".
    - "recovery": recovery from extreme thermal conditions (e.g. 65.0 °C overheat down to 25.0 °C normal).
-   - "sequence": dynamic multi-step sequences, especially verifying hysteresis (e.g. 31.0 °C -> 29.0 °C where fan must stay ON; 31.0 °C -> 28.0 °C where fan stays ON; 31.0 °C -> 27.9 °C where fan turns OFF).
+   - "sequence": dynamic multi-step sequences verifying hysteresis (e.g. 31.0 °C -> 28.1 °C where fan stays ON; 31.0 °C -> 28.0 °C where fan turns OFF; 31.0 °C -> 27.9 °C where fan turns OFF).
    - "combination": multi-step transitions combining thresholds, alarms, and normal states.
 
 2. SPEC IS THE ORACLE:
-   - Expected values MUST come from the specification rules, NEVER from buggy code behavior.
+   - Expected values MUST come strictly from the specification rules, NEVER from current code implementation or planted bugs.
    - Example: if spec says fan ON at >= 30.0 °C, expected result for 30.0 °C MUST be fan=ON, even if the code currently checks `t > 30.0`.
-   - If spec says hysteresis stays ON until <= 28.0 °C, 31.0 -> 29.0 MUST expect fan=ON.
+   - Hysteresis rule R2 (per DECISIONS.md #9): with fan ON, at exactly 28.0 °C the fan turns OFF (<= 28.0). Above 28.0 °C (e.g. 28.1 °C) it stays ON.
    - If spec says sensor failure prints "[ERROR] SENSOR_FAIL" and fan ON, expect those even if code lacks isnan() checks.
 
-3. MANDATORY TESTS: You MUST include at least the following test cases:
-   - Boundary: temp 30.0 °C (fan=ON, spec R1)
-   - Boundary: temp 29.9 °C (fan=OFF)
-   - Boundary: temp 30.1 °C (fan=ON)
-   - Hysteresis sequence: 31.0 °C then 29.0 °C (fan stays ON, spec R2)
-   - Hysteresis sequence: 31.0 °C then 28.0 °C (fan stays ON until <= 28.0, spec R2)
-   - Hysteresis boundary: 31.0 °C then 27.9 °C (fan turns OFF, spec R2)
-   - Overheat: 60.0 °C (expects "[ALARM] OVERHEAT" and "fan=ON", spec R4)
-   - Normal low: 25.0 °C (fan=OFF, spec R3)
-   - Normal high: 45.0 °C (fan=ON, spec R1)
-   - Thermal recovery: 65.0 °C then 25.0 °C (recovers from overheat to room temp, fan=OFF)
-   - Sensor failure: sensor="disconnected" (expects "[ERROR] SENSOR_FAIL" and "fan=ON", spec R5)
-   - DO NOT generate any test for sensor reconnect / rule R6 (sensor reconnect cannot be simulated in Wokwi).
+3. MANDATORY TARGET TEST POINTS: You MUST include tests covering the following specific points:
+   - Boundary at threshold: 29.9 °C (fan=OFF, spec R3), 30.0 °C (fan=ON, spec R1), 30.1 °C (fan=ON, spec R1).
+   - Alarm boundary: 59.9 °C (fan=ON, no alarm), 60.0 °C (fan=ON, "[ALARM] OVERHEAT", spec R4).
+   - Hysteresis sequence: 31.0 °C -> 28.1 °C (fan stays ON, spec R2).
+   - Hysteresis sequence: 31.0 °C -> 28.0 °C (fan turns OFF at <= 28.0 C, spec R2 / DECISIONS.md #9).
+   - Hysteresis boundary: 31.0 °C -> 27.9 °C (fan turns OFF, spec R2).
+   - Temperature extremes: -40.0 °C (DHT22 min, fan=OFF, spec R3) and 80.0 °C (DHT22 max, fan=ON, "[ALARM] OVERHEAT", spec R4).
+   - Rapid thermal change: 25.0 °C -> 45.0 °C -> 25.0 °C (normal rise and fall).
+   - Sensor failure: sensor="disconnected" (expects "[ERROR] SENSOR_FAIL" and "fan=ON", spec R5).
+   - DO NOT generate any test for sensor reconnect or rule R6 (sensor reconnect cannot be simulated in Wokwi, see DECISIONS.md).
 
 4. HARDWARE & SERIAL CONSTRAINTS:
    - Temperatures MUST be within DHT22 range: -40.0 to 80.0, formatted to 1 decimal place (e.g. 30.0, -40.0).
@@ -84,6 +81,49 @@ FIRMWARE SOURCE CODE (WITH LINE NUMBERS):
 ```
 
 Generate 12 to 20 test cases conforming to the TestList JSON schema (containing the 'tests' array)."""
+
+
+def make_generator_topup_prompt(
+    analysis_json: str,
+    numbered_source: str,
+    missing_categories: list[str],
+    boundary_needed: int,
+    existing_count: int,
+) -> str:
+    """Generate prompt asking for ONLY missing categories/tests to achieve complete coverage."""
+    items = []
+    if missing_categories:
+        items.append(
+            f"Missing categories requiring at least 1 test each: {', '.join(missing_categories)}"
+        )
+    if boundary_needed > 0:
+        items.append(f"Additional 'boundary' tests needed: {boundary_needed}")
+
+    requirements_text = "\n".join(f"- {item}" for item in items)
+    start_id = existing_count + 1
+
+    return f"""{GENERATOR_SYSTEM_INSTRUCTIONS}
+
+TOP-UP COVERAGE REQUEST:
+The test suite is missing coverage for specific categories. Generate ONLY the test cases specified below to fill the gaps:
+{requirements_text}
+
+CONSTRAINTS:
+- Generate ONLY the required test cases to satisfy the missing categories above.
+- Number test IDs sequentially starting from T{start_id:02d}.
+- Expected serial strings must strictly reflect the specification rules.
+- Set round = 0.
+- Return valid JSON matching the TestList schema.
+
+FIRMWARE ANALYSIS:
+```json
+{analysis_json}
+```
+
+FIRMWARE SOURCE CODE (WITH LINE NUMBERS):
+```
+{numbered_source}
+```"""
 
 
 def make_generator_repair_prompt(

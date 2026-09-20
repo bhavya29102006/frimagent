@@ -15,33 +15,10 @@ from agent.models import (
 )
 
 
-def _compute_coverage(
-    tests: list[TestCase],
-    results: list[TestResult],
-) -> dict[str, dict[str, int]]:
-    """Compute test category coverage counts and pass rates."""
-    res_map = {r.test_id: r.status for r in results}
-    coverage: dict[str, dict[str, int]] = {}
+from agent.coverage import compute_coverage, RULE_DESCRIPTIONS
 
-    for t in tests:
-        cat = t.category
-        if cat not in coverage:
-            coverage[cat] = {
-                "total": 0,
-                "passed": 0,
-                "failed": 0,
-                "errors": 0,
-            }
-        coverage[cat]["total"] += 1
-        status = res_map.get(t.id, "NOT_RUN")
-        if status == "PASS":
-            coverage[cat]["passed"] += 1
-        elif status == "FAIL":
-            coverage[cat]["failed"] += 1
-        elif status == "ERROR":
-            coverage[cat]["errors"] += 1
-
-    return coverage
+# Alias for backward compatibility
+_compute_coverage = compute_coverage
 
 
 def _extract_source_snippet(
@@ -77,8 +54,10 @@ def build_markdown_report(
         if manifest.total_tests
         else "0%"
     )
-    coverage = _compute_coverage(tests, results)
+    coverage = compute_coverage(tests, results)
     test_map = {t.id: t for t in tests}
+    cat_matrix = coverage["categories"]
+    rules_map = coverage["rules"]
 
     md = []
     md.append(f"# FirmAgent Autonomous Test Report")
@@ -102,18 +81,46 @@ def build_markdown_report(
     # Coverage Matrix
     md.append("## Test Coverage Matrix\n")
     md.append(
-        "| Category | Total Tests | Passed | Failed | Errors | Pass Rate |"
+        "| Category | Total Tests | Passed | Failed | Errors | Pass Rate | Status |"
     )
-    md.append("| :--- | :---: | :---: | :---: | :---: | :---: |")
-    for cat, counts in sorted(coverage.items()):
+    md.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: |")
+    for cat, counts in sorted(cat_matrix.items()):
         rate = (
             f"{(counts['passed'] / counts['total'] * 100):.1f}%"
             if counts["total"]
             else "0%"
         )
+        if counts["total"] == 0:
+            status_tag = "⚠️ NO TESTS"
+        elif counts["passed"] == counts["total"]:
+            status_tag = "✅ PASS"
+        elif counts["failed"] > 0:
+            status_tag = "❌ FAIL"
+        elif counts["errors"] > 0:
+            status_tag = "⚠️ ERROR"
+        else:
+            status_tag = "⏳ NOT RUN"
+
         md.append(
-            f"| `{cat}` | {counts['total']} | {counts['passed']} | {counts['failed']} | {counts['errors']} | {rate} |"
+            f"| `{cat}` | {counts['total']} | {counts['passed']} | {counts['failed']} | {counts['errors']} | {rate} | {status_tag} |"
         )
+    md.append("")
+
+    # Specification Rule Coverage
+    md.append("## Specification Rule Coverage\n")
+    md.append("| Rule | Description | Test IDs | Status |")
+    md.append("| :--- | :--- | :--- | :--- |")
+    for r_id in ["R1", "R2", "R3", "R4", "R5", "R6"]:
+        desc = RULE_DESCRIPTIONS.get(r_id, "")
+        if r_id == "R6":
+            md.append(f"| **{r_id}** | {desc} | *(none)* | ℹ️ not testable in simulator |")
+        else:
+            t_ids = rules_map.get(r_id, [])
+            if t_ids:
+                t_str = ", ".join(f"`{t}`" for t in t_ids)
+                md.append(f"| **{r_id}** | {desc} | {t_str} | ✅ COVERED |")
+            else:
+                md.append(f"| **{r_id}** | {desc} | *(none)* | ❌ MISSING |")
     md.append("")
 
     # Root Cause Findings
@@ -204,12 +211,14 @@ def build_html_report(
         if manifest.total_tests
         else 0
     )
-    coverage = _compute_coverage(tests, results)
+    coverage = compute_coverage(tests, results)
     test_map = {t.id: t for t in tests}
+    cat_matrix = coverage["categories"]
+    rules_map = coverage["rules"]
 
     # Format Coverage Rows
     coverage_rows = []
-    for cat, counts in sorted(coverage.items()):
+    for cat, counts in sorted(cat_matrix.items()):
         c_pct = (
             (counts["passed"] / counts["total"] * 100)
             if counts["total"]
@@ -220,6 +229,17 @@ def build_html_report(
             if c_pct == 100
             else ("#EF4444" if c_pct == 0 else "#F59E0B")
         )
+        if counts["total"] == 0:
+            status_html = '<span class="badge badge-cat">⚠️ NO TESTS</span>'
+        elif counts["passed"] == counts["total"]:
+            status_html = '<span class="badge badge-pass">✅ PASS</span>'
+        elif counts["failed"] > 0:
+            status_html = '<span class="badge badge-fail">❌ FAIL</span>'
+        elif counts["errors"] > 0:
+            status_html = '<span class="badge badge-err">⚠️ ERROR</span>'
+        else:
+            status_html = '<span class="badge badge-cat">⏳ PENDING</span>'
+
         coverage_rows.append(
             f"""
             <tr>
@@ -236,9 +256,47 @@ def build_html_report(
                         <span style="font-size: 12px; min-width: 40px;">{c_pct:.0f}%</span>
                     </div>
                 </td>
+                <td>{status_html}</td>
             </tr>
         """
         )
+
+    # Format Specification Rules Rows (R1 - R6)
+    rule_rows = []
+    for r_id in ["R1", "R2", "R3", "R4", "R5", "R6"]:
+        desc = RULE_DESCRIPTIONS.get(r_id, "")
+        if r_id == "R6":
+            rule_rows.append(
+                f"""
+                <tr>
+                    <td><span class="badge badge-cat"><strong>{r_id}</strong></span></td>
+                    <td>{html.escape(desc)}</td>
+                    <td><span style="color: #94A3B8; font-style: italic;">(none)</span></td>
+                    <td><span class="badge badge-cat" style="text-transform: none;">ℹ️ not testable in simulator</span></td>
+                </tr>
+            """
+            )
+        else:
+            t_ids = rules_map.get(r_id, [])
+            if t_ids:
+                badges = " ".join(
+                    f'<span class="badge badge-pass">{html.escape(tid)}</span>'
+                    for tid in t_ids
+                )
+                status = '<span class="badge badge-pass">✅ COVERED</span>'
+            else:
+                badges = '<span style="color: #94A3B8; font-style: italic;">(none)</span>'
+                status = '<span class="badge badge-fail">❌ MISSING</span>'
+            rule_rows.append(
+                f"""
+                <tr>
+                    <td><span class="badge badge-cat"><strong>{r_id}</strong></span></td>
+                    <td>{html.escape(desc)}</td>
+                    <td>{badges}</td>
+                    <td>{status}</td>
+                </tr>
+            """
+            )
 
     # Format Finding Cards
     finding_cards = []
@@ -595,10 +653,29 @@ def build_html_report(
                         <th>Failed</th>
                         <th>Errors</th>
                         <th>Pass Rate</th>
+                        <th>Status</th>
                     </tr>
                 </thead>
                 <tbody>
                     {''.join(coverage_rows)}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Specification Rule Coverage -->
+        <div class="card">
+            <h2 class="section-title">Specification Rule Coverage (R1 - R6)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Rule ID</th>
+                        <th>Requirement</th>
+                        <th>Targeted Tests</th>
+                        <th>Coverage Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {''.join(rule_rows)}
                 </tbody>
             </table>
         </div>

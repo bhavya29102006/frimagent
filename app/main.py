@@ -22,6 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from agent.analyzer import analyze_firmware
+from agent.coverage import compute_coverage, RULE_DESCRIPTIONS
 from agent.evaluator import collapse_firmware_lines
 from agent.generator import generate_tests
 from agent.models import (
@@ -641,6 +642,89 @@ with tab_report:
         c3.metric("Failed", manifest.failed)
         c4.metric("Errors", manifest.errors)
         c5.metric("Defects Identified", len(findings))
+
+        st.divider()
+
+        # Test Coverage Matrix
+        st.markdown("### 📊 Test Coverage Matrix")
+        cov = compute_coverage(tests, results)
+        cat_matrix = cov["categories"]
+        rules_map = cov["rules"]
+
+        cov_rows = []
+        for cat, counts in sorted(cat_matrix.items()):
+            rate = (
+                f"{(counts['passed'] / counts['total'] * 100):.0f}%"
+                if counts["total"]
+                else "0%"
+            )
+            if counts["total"] == 0:
+                status_str = "⚠️ NO TESTS"
+            elif counts["passed"] == counts["total"]:
+                status_str = "✅ PASS"
+            elif counts["failed"] > 0:
+                status_str = "❌ FAIL"
+            elif counts["errors"] > 0:
+                status_str = "⚠️ ERROR"
+            else:
+                status_str = "⏳ NOT RUN"
+
+            cov_rows.append(
+                {
+                    "Category": cat,
+                    "Total": counts["total"],
+                    "Passed": counts["passed"],
+                    "Failed": counts["failed"],
+                    "Errors": counts["errors"],
+                    "Pass Rate": rate,
+                    "Status": status_str,
+                }
+            )
+        st.dataframe(
+            pd.DataFrame(cov_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # Specification Rule Coverage
+        st.markdown("### 📜 Specification Rule Coverage (R1 - R6)")
+        rule_rows = []
+        for r_id in ["R1", "R2", "R3", "R4", "R5", "R6"]:
+            desc = RULE_DESCRIPTIONS.get(r_id, "")
+            if r_id == "R6":
+                rule_rows.append(
+                    {
+                        "Rule": r_id,
+                        "Requirement": desc,
+                        "Covering Tests": "(none)",
+                        "Status": "ℹ️ not testable in simulator",
+                    }
+                )
+            else:
+                t_ids = rules_map.get(r_id, [])
+                if t_ids:
+                    rule_rows.append(
+                        {
+                            "Rule": r_id,
+                            "Requirement": desc,
+                            "Covering Tests": ", ".join(t_ids),
+                            "Status": "✅ COVERED",
+                        }
+                    )
+                else:
+                    rule_rows.append(
+                        {
+                            "Rule": r_id,
+                            "Requirement": desc,
+                            "Covering Tests": "(none)",
+                            "Status": "❌ MISSING",
+                        }
+                    )
+        st.dataframe(
+            pd.DataFrame(rule_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
 
         st.divider()
 
