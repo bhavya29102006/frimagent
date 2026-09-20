@@ -110,11 +110,22 @@ def evaluate(
     error_message: str | None = None
 
     if exit_code == 0:
-        if expected_strings and not seen_expected:
-            # Safety check: simulator claimed success, but expected serial was never actually printed
+        if "Scenario completed successfully" in raw_output and expected_strings and not seen_expected:
+            # Safety check: Wokwi claimed scenario success, but expected serial was never actually printed
             status = "ERROR"
             error_message = (
                 "inconsistent: exit 0 but expected text not seen in firmware output"
+            )
+        elif not firmware_lines and expected_strings:
+            # Firmware exited 0 but produced no valid serial lines at all
+            status = "ERROR"
+            error_message = (
+                "inconsistent: exit 0 but no firmware serial lines were output"
+            )
+        elif expected_strings and not seen_expected:
+            status = "FAIL"
+            error_message = (
+                f"Expected serial output not observed: {missing_expected}"
             )
         elif violated_must_not:
             status = "FAIL"

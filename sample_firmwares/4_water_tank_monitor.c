@@ -1,6 +1,16 @@
 /*
- * Industrial Water Tank Monitor & Pump Controller (Pure C)
- * Controls reservoir replenishment with level hysteresis and overflow alarm.
+ * Industrial Water Tank Monitor & Reservoir Controller (Pure Standalone C)
+ *
+ * SPECIFICATION:
+ *  R1: Pump / Fan is ON when water level >= 30.0%.
+ *  R2: Once ON, pump turns OFF only when water level <= 28.0% (2.0% hysteresis).
+ *  R3: Pump is OFF at boot and remains OFF while level is below 30.0%.
+ *  R4: Level >= 60.0% triggers "[ALARM] OVERHEAT" warning and pump remains ON.
+ *  R5: Sensor disconnect (< -40% or > 100%) triggers "[ERROR] SENSOR_FAIL" and pump fail-safe ON.
+ *  R6: Standard serial telemetry format: "[DATA] temp=<x.x> fan=<ON|OFF>".
+ *
+ * PLANTED DEFECTS (For Autonomous Testing Demo):
+ *  - Bug 1 (Alarm Hysteresis): Overheat alarm triggers at 60.0% but suppresses normal OFF transition in recovery.
  */
 
 #include <stdio.h>
@@ -15,7 +25,7 @@
 static bool pump_active = false;
 
 void process_water_level(float level_pct) {
-    // Sensor validation
+    // Rule R5: Sensor validation & fail-safe
     if (level_pct < -40.0f || level_pct > 100.0f) {
         pump_active = true; // fail-safe ON
         printf("[ERROR] SENSOR_FAIL: Invalid tank level reading\n");
@@ -23,13 +33,13 @@ void process_water_level(float level_pct) {
         return;
     }
 
-    // Overflow / Overheat alarm (>= 60.0)
+    // Rule R4: Overflow / Overheat alarm (>= 60.0%)
     if (level_pct >= OVERFLOW_LEVEL) {
         pump_active = true;
         printf("[ALARM] OVERHEAT: Tank overflow risk! Level: %.1f%%\n", level_pct);
     }
 
-    // Hysteresis control logic:
+    // Rule R1 & R2: Hysteresis control logic:
     // Turn ON when level/temp >= 30.0
     if (level_pct >= PUMP_ON_LEVEL) {
         pump_active = true;
@@ -39,7 +49,7 @@ void process_water_level(float level_pct) {
         pump_active = false;
     }
 
-    // Standard telemetry line matching FirmAgent parser
+    // Rule R6: Standard telemetry line matching FirmAgent parser
     printf("[DATA] temp=%.1f fan=%s\n", level_pct, pump_active ? "ON" : "OFF");
 }
 

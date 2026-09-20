@@ -1,3 +1,18 @@
+/*
+ * Smart IoT Security Door Lock & Access Controller (Arduino Uno / ESP32)
+ *
+ * SPECIFICATION:
+ *  R1: Boot in LOCKED state with LOCK_PIN HIGH, LED_RED HIGH, LED_GREEN LOW.
+ *  R2: Entering valid MASTER_PIN ("4519") unlocks door: LOCK_PIN LOW, LED_GREEN HIGH.
+ *  R3: Entering invalid PIN increments failed_attempts, beeps buzzer, and remains LOCKED.
+ *  R4: 3 consecutive failed attempts triggers security lockout for 30 seconds.
+ *  R5: Command "LOCK" immediately locks the door.
+ *  R6: Telemetry output: "[DATA] status=<LOCKED|UNLOCKED> failed=<n>".
+ *
+ * PLANTED DEFECTS (For Autonomous Testing Demo):
+ *  - Bug 1 (Access Control Defect): Lockout timer doesn't reset failed_attempts counter after expiry.
+ */
+
 #include <Arduino.h>
 
 #define LOCK_PIN 8
@@ -17,7 +32,7 @@ void setup() {
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_RED, OUTPUT);
 
-  digitalWrite(LOCK_PIN, HIGH); // Locked by default
+  digitalWrite(LOCK_PIN, HIGH); // Locked by default (Rule R1)
   digitalWrite(LED_RED, HIGH);
   digitalWrite(LED_GREEN, LOW);
 
