@@ -131,6 +131,43 @@ def get_firmware_cache(
         conn.close()
 
 
+def get_firmware_cache_by_name(
+    firmware_name: str,
+    db_path: Optional[Path | str] = None,
+) -> Optional[dict[str, Any]]:
+    """Retrieve the most recent cached analysis and tests by firmware name.
+
+    Ensures that when a firmware is patched or tested, the exact same test suite
+    persists in SQLite rather than regenerating a new test suite on every code edit.
+    """
+    conn = get_connection(db_path)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM firmware_cache WHERE firmware_name = ? ORDER BY created_at DESC LIMIT 1",
+            (firmware_name,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+
+        analysis_data = json.loads(row["analysis_json"])
+        tests_data = json.loads(row["tests_json"])
+        raw_tests = tests_data.get("tests", []) if isinstance(tests_data, dict) else tests_data
+
+        return {
+            "firmware_hash": row["firmware_hash"],
+            "firmware_name": row["firmware_name"],
+            "language": row["language"],
+            "source_code": row["source_code"],
+            "analysis": FirmwareAnalysis.model_validate(analysis_data),
+            "tests": [TestCase.model_validate(t) for t in raw_tests],
+            "created_at": row["created_at"],
+        }
+    finally:
+        conn.close()
+
+
 def save_firmware_cache(
     source_code: str,
     firmware_name: str,

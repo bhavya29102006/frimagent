@@ -71,6 +71,7 @@ from agent.db import (
     delete_firmware_cache,
     get_db_stats,
     get_firmware_cache,
+    get_firmware_cache_by_name,
     save_firmware_cache,
 )
 from agent.simulators.registry import (
@@ -306,6 +307,26 @@ if not FIRMWARE_DIR.is_dir():
     FIRMWARE_DIR = FIRMWARE_BASE_DIR / "fan_controller"
 FIRMWARE_SRC_FILE = find_firmware_src_file(FIRMWARE_DIR)
 
+# Auto-sync dev cache with persistent SQLite database so tabs show existing 16 tests immediately
+if FIRMWARE_SRC_FILE.is_file():
+    _fw_code = FIRMWARE_SRC_FILE.read_text(encoding="utf-8")
+    _fw_hash = hashlib.sha256(_fw_code.encode("utf-8")).hexdigest()
+    _dev_h_file = RUNS_DIR / "dev" / "firmware_hash.txt"
+    _cur_h = _dev_h_file.read_text(encoding="utf-8").strip() if _dev_h_file.is_file() else ""
+    if _cur_h != _fw_hash:
+        _cached_entry = get_firmware_cache(_fw_code) or get_firmware_cache_by_name(FIRMWARE_DIR.name)
+        if _cached_entry is not None:
+            _dev_d = RUNS_DIR / "dev"
+            _dev_d.mkdir(parents=True, exist_ok=True)
+            (_dev_d / "analysis.json").write_text(
+                _cached_entry["analysis"].model_dump_json(indent=2), encoding="utf-8"
+            )
+            (_dev_d / "tests.json").write_text(
+                TestList(tests=_cached_entry["tests"]).model_dump_json(indent=2), encoding="utf-8"
+            )
+            (_dev_d / "firmware_hash.txt").write_text(_fw_hash, encoding="utf-8")
+            (_dev_d / "firmware_source.txt").write_text(_fw_code, encoding="utf-8")
+
 
 
 def is_internet_available(host: str = "8.8.8.8", port: int = 53, timeout: float = 1.5) -> bool:
@@ -419,6 +440,16 @@ def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_even
         source_code = fw_src.read_text(encoding="utf-8")
         current_hash = hashlib.sha256(source_code.encode("utf-8")).hexdigest()
         cached_entry = get_firmware_cache(source_code)
+        if cached_entry is None:
+            cached_entry = get_firmware_cache_by_name(fw_dir.name)
+            if cached_entry is not None:
+                save_firmware_cache(
+                    source_code=source_code,
+                    firmware_name=fw_dir.name,
+                    language=cached_entry["language"],
+                    analysis=cached_entry["analysis"],
+                    tests=cached_entry["tests"],
+                )
 
         if cached_entry is not None:
             shared_state["status"] = f"1. Backend DB: Loaded cached analysis & tests (Hash: {cached_entry['firmware_hash'][:8]})... (Gemini Bypassed)"
@@ -758,6 +789,8 @@ with tab_run:
         fw_content_current = FIRMWARE_SRC_FILE.read_text(encoding="utf-8") if FIRMWARE_SRC_FILE.is_file() else ""
         det_lang = detect_firmware_language(fw_content_current)
         cached_record = get_firmware_cache(fw_content_current) if fw_content_current else None
+        if cached_record is None and FIRMWARE_DIR.name:
+            cached_record = get_firmware_cache_by_name(FIRMWARE_DIR.name)
         current_sim_id = st.session_state.get("simulator_engine_choice", "wokwi")
 
         badge_c1, badge_c2 = st.columns(2)
@@ -1935,7 +1968,7 @@ with tab_report:
                     if is_verified:
                         st.markdown("#### 🚀 Apply Fix to Original Firmware")
                         confirm_apply = st.checkbox(
-                            "I understand this edits firmware/fan_controller/src/main.cpp, a backup is kept",
+                            f"I understand this edits {fw_rel_src}, a backup is kept",
                             key=f"chk_confirm_{current_attempt.attempt_id}",
                         )
                         apply_orig_btn = st.button(

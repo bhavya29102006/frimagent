@@ -19,6 +19,7 @@ from agent.models import (
 from agent.orchestrator import run_all
 from agent.patcher import (
     apply_patch_to_copy,
+    find_patch_target_file,
     propose_patch,
     render_diff,
     validate_patch,
@@ -78,7 +79,7 @@ def run_autofix(
     analysis_file = run_dir / "analysis.json"
     source_file = run_dir / "firmware_source.txt"
     if not source_file.is_file():
-        source_file = Path(firmware_dir) / "src" / "main.cpp"
+        source_file = find_patch_target_file(firmware_dir)
 
     results_raw = (
         json.loads(results_file.read_text(encoding="utf-8"))
@@ -181,6 +182,7 @@ def verify_fix(
     builder_fn: Optional[Callable[..., tuple[bool, str, dict[str, Path]]]] = None,
     stop_event: Any = None,
     on_step: Optional[Callable[[str], None]] = None,
+    simulator_name: Optional[str] = None,
 ) -> FixAttempt:
     """Verify a proposed fix on the sandbox copy and auto-reject if build fails or regressions occur.
 
@@ -198,6 +200,19 @@ def verify_fix(
     fix_dir = Path(runs_base_dir) / run_id / "fix" / attempt.attempt_id
     copy_dir = fix_dir / "project"
     run_dir = Path(runs_base_dir) / run_id
+
+    # Resolve simulator engine from parameter, manifest, or default to virtual_mock
+    sim_name = simulator_name
+    if not sim_name:
+        manifest_file = run_dir / "manifest.json"
+        if manifest_file.is_file():
+            try:
+                m_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+                sim_name = m_data.get("simulator_name")
+            except Exception:
+                pass
+    if not sim_name:
+        sim_name = "virtual_mock"
 
     # 1. Load baseline results
     results_file = run_dir / "results.json"
@@ -245,6 +260,7 @@ def verify_fix(
         runner_fn=runner_fn,
         runs_base_dir=fix_dir,
         stop_event=stop_event,
+        simulator_name=sim_name,
     )
 
     if stop_event and getattr(stop_event, "is_set", lambda: False)():
@@ -265,6 +281,7 @@ def verify_fix(
         runner_fn=runner_fn,
         runs_base_dir=fix_dir,
         stop_event=stop_event,
+        simulator_name=sim_name,
     )
 
     # 6. Collect after results
