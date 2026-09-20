@@ -226,6 +226,73 @@ def find_firmware_src_file(fw_dir: Path) -> Path:
     return fw_dir / "src" / "main.cpp"
 
 
+def save_uploaded_source_to_firmware(fw_dir: Path, filename: str, content: str) -> Path:
+    """Safely save uploaded or loaded firmware source code into firmware directory,
+    backing up existing source files and ensuring no conflicting main files exist.
+    """
+    src_dir = fw_dir / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+
+    ext = Path(filename).suffix.lower() or ".cpp"
+    dest_file = src_dir / f"main{ext}"
+
+    # Backup all existing main.* source files in src/
+    for existing in list(src_dir.glob("main.*")):
+        if existing.suffix in (".cpp", ".c", ".py", ".ino") and not existing.name.endswith(".bak"):
+            bak_file = existing.with_name(existing.name + ".bak")
+            try:
+                bak_file.write_text(existing.read_text(encoding="utf-8"), encoding="utf-8")
+                if existing != dest_file and existing.is_file():
+                    existing.unlink()
+            except Exception:
+                pass
+
+    # Write new source code
+    dest_file.write_text(content, encoding="utf-8")
+    return dest_file
+
+
+def restore_firmware_source_backup(fw_dir: Path) -> Optional[Path]:
+    """Restore previous main.* source file from .bak in src/ directory."""
+    src_dir = fw_dir / "src"
+    if not src_dir.is_dir():
+        return None
+
+    bak_files = [f for f in src_dir.glob("main.*.bak") if f.is_file()]
+    if not bak_files:
+        legacy_bak = src_dir / "main.cpp.bak"
+        if legacy_bak.is_file():
+            bak_files = [legacy_bak]
+
+    if not bak_files:
+        return None
+
+    target_bak = bak_files[0]
+    orig_name = target_bak.name[:-4]  # Remove .bak
+    restored_file = src_dir / orig_name
+
+    # Remove any current main files that aren't the one being restored
+    for existing in list(src_dir.glob("main.*")):
+        if existing.suffix in (".cpp", ".c", ".py", ".ino") and existing != restored_file and not existing.name.endswith(".bak"):
+            try:
+                existing.unlink()
+            except Exception:
+                pass
+
+    restored_file.write_text(target_bak.read_text(encoding="utf-8"), encoding="utf-8")
+    try:
+        target_bak.unlink()
+    except Exception:
+        pass
+    return restored_file
+
+
+# Consume pending firmware and simulator switches BEFORE any widgets instantiate
+if "pending_fw_choice" in st.session_state:
+    st.session_state["target_firmware_choice"] = st.session_state.pop("pending_fw_choice")
+if "pending_sim_choice" in st.session_state:
+    st.session_state["simulator_engine_choice"] = st.session_state.pop("pending_sim_choice")
+
 # Resolve active target firmware dynamically from session_state
 _active_fw_name = st.session_state.get("target_firmware_choice", "fan_controller")
 FIRMWARE_DIR = FIRMWARE_BASE_DIR / _active_fw_name
@@ -749,16 +816,8 @@ with tab_run:
                     if sel_sample and sel_sample in local_samples:
                         target_path = local_samples[sel_sample]
                         fw_content = target_path.read_text(encoding="utf-8")
-                        det_lang = detect_firmware_language(target_path)
-
-                        ext = target_path.suffix or ".cpp"
-                        dest_file = FIRMWARE_DIR / "src" / ("main" + ext)
-                        if not dest_file.parent.is_dir():
-                            dest_file.parent.mkdir(parents=True, exist_ok=True)
-                        if dest_file.is_file():
-                            bak = dest_file.with_name(dest_file.name + ".bak")
-                            bak.write_text(dest_file.read_text(encoding="utf-8"), encoding="utf-8")
-                        dest_file.write_text(fw_content, encoding="utf-8")
+                        dest_file = save_uploaded_source_to_firmware(FIRMWARE_DIR, target_path.name, fw_content)
+                        det_lang = detect_firmware_language(dest_file)
 
                         # Remove stale dev firmware_hash to force fresh analysis
                         dev_dir = RUNS_DIR / "dev"
@@ -768,15 +827,15 @@ with tab_run:
                             except Exception:
                                 pass
 
-                        # Auto-set simulator engine
+                        # Auto-set simulator engine via pending state to avoid widget lifecycle error
                         if det_lang == "python":
-                            st.session_state["simulator_engine_choice"] = "python_sim"
+                            st.session_state["pending_sim_choice"] = "python_sim"
                         elif det_lang == "c":
-                            st.session_state["simulator_engine_choice"] = "native_c"
+                            st.session_state["pending_sim_choice"] = "native_c"
                         else:
-                            st.session_state["simulator_engine_choice"] = "virtual_mock"
+                            st.session_state["pending_sim_choice"] = "virtual_mock"
 
-                        st.success(f"✅ Loaded `{sel_sample}` into `{FIRMWARE_DIR.name}`! Detected: `{det_lang.upper()}`. Simulator: `{st.session_state['simulator_engine_choice']}`.")
+                        st.success(f"✅ Loaded `{sel_sample}` into `{FIRMWARE_DIR.name}`! Detected: `{det_lang.upper()}`.")
                         time.sleep(0.5)
                         st.rerun()
 
@@ -792,23 +851,16 @@ with tab_run:
                     if st.session_state.get("last_uploaded_fw") != uploaded_fw.name:
                         try:
                             fw_content = uploaded_fw.getvalue().decode("utf-8", errors="replace")
-                            ext = Path(uploaded_fw.name).suffix or ".cpp"
-                            dest_file = FIRMWARE_DIR / "src" / ("main" + ext)
-                            if not dest_file.parent.is_dir():
-                                dest_file.parent.mkdir(parents=True, exist_ok=True)
-                            if dest_file.is_file():
-                                bak_path = dest_file.with_name(dest_file.name + ".bak")
-                                bak_path.write_text(dest_file.read_text(encoding="utf-8"), encoding="utf-8")
-                            dest_file.write_text(fw_content, encoding="utf-8")
+                            dest_file = save_uploaded_source_to_firmware(FIRMWARE_DIR, uploaded_fw.name, fw_content)
+                            det_lang = detect_firmware_language(dest_file)
 
-                            # Detect language & configure simulator
-                            det_lang = detect_firmware_language(fw_content)
+                            # Configure simulator via pending state to avoid widget lifecycle error
                             if det_lang == "python":
-                                st.session_state["simulator_engine_choice"] = "python_sim"
+                                st.session_state["pending_sim_choice"] = "python_sim"
                             elif det_lang == "c":
-                                st.session_state["simulator_engine_choice"] = "native_c"
+                                st.session_state["pending_sim_choice"] = "native_c"
                             else:
-                                st.session_state["simulator_engine_choice"] = "virtual_mock"
+                                st.session_state["pending_sim_choice"] = "virtual_mock"
 
                             dev_dir = RUNS_DIR / "dev"
                             if (dev_dir / "firmware_hash.txt").is_file():
@@ -818,21 +870,23 @@ with tab_run:
                                     pass
 
                             st.session_state["last_uploaded_fw"] = uploaded_fw.name
-                            st.success(f"✅ Uploaded `{uploaded_fw.name}`! Language: `{det_lang.upper()}`. Simulator: `{st.session_state['simulator_engine_choice']}`.")
+                            st.success(f"✅ Uploaded `{uploaded_fw.name}`! Detected Language: `{det_lang.upper()}`.")
                             time.sleep(0.5)
                             st.rerun()
                         except Exception as up_exc:
                             st.error(f"Failed to save uploaded firmware: {up_exc}")
 
             # Undo / Restore Backup Button
-            bak_file = FIRMWARE_SRC_FILE.with_name(FIRMWARE_SRC_FILE.name + ".bak")
-            if bak_file.is_file():
-                if st.button(f"⏮️ Restore Previous Code ({bak_file.name})", key="restore_bak_btn", use_container_width=True):
-                    FIRMWARE_SRC_FILE.write_text(bak_file.read_text(encoding="utf-8"), encoding="utf-8")
-                    bak_file.unlink()
-                    st.success(f"Restored `{FIRMWARE_SRC_FILE.name}` from backup!")
-                    time.sleep(0.5)
-                    st.rerun()
+            src_dir = FIRMWARE_DIR / "src"
+            has_bak = any(f.name.endswith(".bak") for f in src_dir.glob("main.*")) if src_dir.is_dir() else False
+            if has_bak:
+                if st.button("⏮️ Restore Previous Code from Backup", key="restore_bak_btn", use_container_width=True):
+                    restored = restore_firmware_source_backup(FIRMWARE_DIR)
+                    if restored:
+                        st.session_state["pending_sim_choice"] = "wokwi"
+                        st.success(f"Restored `{restored.name}` from backup!")
+                        time.sleep(0.5)
+                        st.rerun()
 
         with fw_col2:
             st.markdown("**Syntax Diagnostics & Auto-Repair**")
