@@ -108,3 +108,46 @@ def test_log_ui_error(tmp_path):
             content = log_path.read_text(encoding="utf-8")
             assert "ValueError: Test error message" in content
             assert "Error during 'test_action'" in content
+
+
+def test_get_available_firmwares():
+    """Verify get_available_firmwares returns all firmware directories."""
+    from app.main import get_available_firmwares
+    fws = get_available_firmwares()
+    assert "fan_controller" in fws
+    assert "incubator_controller" in fws
+    assert "smart_door_lock" in fws
+    assert "water_tank_monitor" in fws
+    assert "iot_weather_node" in fws
+    assert "broken_syntax_demo" in fws
+
+
+def test_find_firmware_src_file():
+    """Verify find_firmware_src_file resolves correct source files for each language."""
+    from app.main import FIRMWARE_BASE_DIR, find_firmware_src_file
+    
+    fan_src = find_firmware_src_file(FIRMWARE_BASE_DIR / "fan_controller")
+    assert fan_src.name == "main.cpp"
+
+    tank_src = find_firmware_src_file(FIRMWARE_BASE_DIR / "water_tank_monitor")
+    assert tank_src.name == "main.c"
+
+    weather_src = find_firmware_src_file(FIRMWARE_BASE_DIR / "iot_weather_node")
+    assert weather_src.name == "main.py"
+
+    broken_src = find_firmware_src_file(FIRMWARE_BASE_DIR / "broken_syntax_demo")
+    assert broken_src.name == "main.cpp"
+
+
+def test_get_local_sample_firmwares():
+    """Verify get_local_sample_firmwares discovers all sample files in sample_firmwares/."""
+    from app.main import get_local_sample_firmwares
+    samples = get_local_sample_firmwares()
+    assert "1_fan_controller.cpp" in samples
+    assert "2_incubator_controller.cpp" in samples
+    assert "3_smart_door_lock.cpp" in samples
+    assert "4_water_tank_monitor.c" in samples
+    assert "5_iot_weather_node.py" in samples
+    assert "6_broken_syntax_demo.cpp" in samples
+
+

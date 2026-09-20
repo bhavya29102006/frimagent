@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "author": "FirmAgent",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "wokwi-arduino-uno", "id": "uno", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-led", "id": "led_red", "top": -120, "left": 60, "attrs": { "color": "red" } },
+    { "type": "wokwi-led", "id": "led_green", "top": -120, "left": 120, "attrs": { "color": "green" } },
+    { "type": "wokwi-buzzer", "id": "bz1", "top": -120, "left": 180, "attrs": {} }
+  ],
+  "connections": [
+    [ "led_red:C", "uno:GND.1", "black", [ "v0" ] ],
+    [ "led_red:A", "uno:11", "red", [ "v0" ] ],
+    [ "led_green:C", "uno:GND.1", "black", [ "v0" ] ],
+    [ "led_green:A", "uno:10", "green", [ "v0" ] ],
+    [ "bz1:1", "uno:GND.2", "black", [ "v0" ] ],
+    [ "bz1:2", "uno:9", "blue", [ "v0" ] ]
+  ],
+  "dependencies": {}
+}

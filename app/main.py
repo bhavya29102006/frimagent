@@ -9,6 +9,7 @@
 """
 
 from datetime import datetime
+import hashlib
 import html
 import json
 from pathlib import Path
@@ -119,11 +120,119 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-FIRMWARE_SRC_FILE = (
-    PROJECT_ROOT / "firmware" / "fan_controller" / "src" / "main.cpp"
-)
-FIRMWARE_DIR = PROJECT_ROOT / "firmware" / "fan_controller"
+FIRMWARE_BASE_DIR = PROJECT_ROOT / "firmware"
 RUNS_DIR = PROJECT_ROOT / "runs"
+
+FIRMWARE_PRESETS: dict[str, dict[str, Any]] = {
+    "fan_controller": {
+        "title": "🌡️ fan_controller (Arduino Uno + DHT22 Fan)",
+        "desc": "Arduino Uno thermostat fan with hysteresis & sensor disconnect fail-safe.",
+        "lang": "cpp",
+        "default_sim": "wokwi",
+    },
+    "incubator_controller": {
+        "title": "🐣 incubator_controller (Arduino Uno + Heater Relay)",
+        "desc": "Medical/poultry incubator maintaining 37.0°C with 40°C overheat alarm.",
+        "lang": "cpp",
+        "default_sim": "wokwi",
+    },
+    "smart_door_lock": {
+        "title": "🔐 smart_door_lock (Arduino Uno + PIN Access Control)",
+        "desc": "Security keypad lock with master PIN, buzzer, LEDs & 3-attempt lockout.",
+        "lang": "cpp",
+        "default_sim": "virtual_mock",
+    },
+    "water_tank_monitor": {
+        "title": "💧 water_tank_monitor (Pure Embedded C)",
+        "desc": "Industrial reservoir level monitor with inlet valve, pump cut-off & overflow alarm.",
+        "lang": "c",
+        "default_sim": "native_c",
+    },
+    "iot_weather_node": {
+        "title": "☁️ iot_weather_node (MicroPython)",
+        "desc": "Ambient weather telemetry node measuring temp, ventilation & freeze protection.",
+        "lang": "python",
+        "default_sim": "python_sim",
+    },
+    "broken_syntax_demo": {
+        "title": "🛠️ broken_syntax_demo (Arduino C++: Test 1-Click AI Auto-Repair)",
+        "desc": "Arduino C++ with intentional syntax errors (missing semicolons) for live repair demo.",
+        "lang": "cpp",
+        "default_sim": "virtual_mock",
+    },
+    "custom_uploaded": {
+        "title": "📁 custom_uploaded (Active User Upload Slot)",
+        "desc": "Custom workspace slot for uploading and testing your own embedded C, C++, or Python firmware.",
+        "lang": "cpp",
+        "default_sim": "virtual_mock",
+    },
+}
+
+SAMPLE_DIR = PROJECT_ROOT / "sample_firmwares"
+
+
+def get_local_sample_firmwares() -> dict[str, Path]:
+    """Scan sample_firmwares/ directory for available sample files."""
+    if not SAMPLE_DIR.is_dir():
+        return {}
+    samples = {}
+    for f in sorted(SAMPLE_DIR.iterdir()):
+        if f.is_file() and f.suffix in (".cpp", ".c", ".py", ".ino"):
+            samples[f.name] = f
+    return samples
+
+
+def get_available_firmwares() -> list[str]:
+    """Scan firmware/ directory for available firmware projects."""
+    if not FIRMWARE_BASE_DIR.is_dir():
+        return ["fan_controller"]
+    found = []
+    # Known presets in order
+    for name in FIRMWARE_PRESETS:
+        if (FIRMWARE_BASE_DIR / name).is_dir():
+            found.append(name)
+    # Any custom folders added by user
+    for d in sorted(FIRMWARE_BASE_DIR.iterdir()):
+        if d.is_dir() and not d.name.startswith(".") and d.name not in found:
+            found.append(d.name)
+    return found or ["fan_controller"]
+
+
+def find_firmware_src_file(fw_dir: Path) -> Path:
+    """Locate primary source code file (.cpp, .c, .py, .ino) in firmware directory."""
+    candidates = [
+        fw_dir / "src" / "main.cpp",
+        fw_dir / "src" / "main.c",
+        fw_dir / "src" / "main.py",
+        fw_dir / "src" / "main.ino",
+        fw_dir / "main.cpp",
+        fw_dir / "main.c",
+        fw_dir / "main.py",
+        fw_dir / "main.ino",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+    src_dir = fw_dir / "src"
+    if src_dir.is_dir():
+        for ext in ("*.cpp", "*.c", "*.py", "*.ino"):
+            matches = list(src_dir.glob(ext))
+            if matches:
+                return matches[0]
+    for ext in ("*.cpp", "*.c", "*.py", "*.ino"):
+        matches = list(fw_dir.glob(ext))
+        if matches:
+            return matches[0]
+    return fw_dir / "src" / "main.cpp"
+
+
+# Resolve active target firmware dynamically from session_state
+_active_fw_name = st.session_state.get("target_firmware_choice", "fan_controller")
+FIRMWARE_DIR = FIRMWARE_BASE_DIR / _active_fw_name
+if not FIRMWARE_DIR.is_dir():
+    FIRMWARE_DIR = FIRMWARE_BASE_DIR / "fan_controller"
+FIRMWARE_SRC_FILE = find_firmware_src_file(FIRMWARE_DIR)
+
 
 
 def is_internet_available(host: str = "8.8.8.8", port: int = 53, timeout: float = 1.5) -> bool:
@@ -224,14 +333,18 @@ def format_steps_plain(test: TestCase) -> str:
 def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_event: threading.Event) -> None:
     """Run the 5-step testing pipeline in a background thread with live state reporting."""
     try:
-        shared_state["status"] = "1. Build & Spec: Checking firmware source..."
+        fw_dir = shared_state.get("firmware_dir", FIRMWARE_DIR)
+        fw_src = shared_state.get("firmware_src_file", FIRMWARE_SRC_FILE)
+
+        shared_state["status"] = f"1. Build & Spec: Checking firmware source for {fw_dir.name}..."
         shared_state["progress"] = 10
 
         dev_dir = RUNS_DIR / "dev"
         dev_dir.mkdir(parents=True, exist_ok=True)
 
         # 1. Ensure Analysis and Tests exist (Check SQLite Database Cache first!)
-        source_code = FIRMWARE_SRC_FILE.read_text(encoding="utf-8")
+        source_code = fw_src.read_text(encoding="utf-8")
+        current_hash = hashlib.sha256(source_code.encode("utf-8")).hexdigest()
         cached_entry = get_firmware_cache(source_code)
 
         if cached_entry is not None:
@@ -246,11 +359,15 @@ def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_even
                 TestList(tests=tests).model_dump_json(indent=2),
                 encoding="utf-8",
             )
+            (dev_dir / "firmware_hash.txt").write_text(current_hash, encoding="utf-8")
+            (dev_dir / "firmware_source.txt").write_text(source_code, encoding="utf-8")
         elif (
             not (dev_dir / "analysis.json").is_file()
             or not (dev_dir / "tests.json").is_file()
+            or not (dev_dir / "firmware_hash.txt").is_file()
+            or (dev_dir / "firmware_hash.txt").read_text(encoding="utf-8").strip() != current_hash
         ):
-            shared_state["status"] = "1. Build & Spec: Analyzing firmware with Gemini..."
+            shared_state["status"] = f"1. Build & Spec: Analyzing {fw_dir.name} with Gemini..."
             shared_state["progress"] = 15
             analysis = analyze_firmware(source_code)
             (dev_dir / "analysis.json").write_text(
@@ -269,12 +386,14 @@ def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_even
                 TestList(tests=tests).model_dump_json(indent=2),
                 encoding="utf-8",
             )
+            (dev_dir / "firmware_hash.txt").write_text(current_hash, encoding="utf-8")
+            (dev_dir / "firmware_source.txt").write_text(source_code, encoding="utf-8")
 
             # Store into SQLite Backend Database
-            lang = detect_firmware_language(FIRMWARE_SRC_FILE)
+            lang = detect_firmware_language(fw_src)
             save_firmware_cache(
                 source_code=source_code,
-                firmware_name=FIRMWARE_DIR.name or "fan_controller",
+                firmware_name=fw_dir.name or "firmware",
                 language=lang,
                 analysis=analysis,
                 tests=tests,
@@ -317,7 +436,7 @@ def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_even
         manifest = run_all(
             run_id=run_id,
             source_dir=dev_dir,
-            firmware_dir=FIRMWARE_DIR,
+            firmware_dir=fw_dir,
             on_event=on_sim_event,
             stop_event=stop_event,
             enable_followup=followup_opt,
@@ -384,11 +503,28 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Configuration")
-    selected_fw = st.selectbox(
+
+    avail_fws = get_available_firmwares()
+
+    def format_fw_opt(fw_key: str) -> str:
+        if fw_key in FIRMWARE_PRESETS:
+            return FIRMWARE_PRESETS[fw_key]["title"]
+        return f"📁 {fw_key}"
+
+    cur_fw_idx = 0
+    if _active_fw_name in avail_fws:
+        cur_fw_idx = avail_fws.index(_active_fw_name)
+
+    chosen_fw = st.selectbox(
         "Target Firmware",
-        options=["Demo: fan_controller (Arduino Uno + DHT22)"],
-        index=0,
+        options=avail_fws,
+        index=cur_fw_idx,
+        format_func=format_fw_opt,
+        key="target_firmware_choice",
+        help="Select target firmware. FirmAgent adapts simulator, compiler diagnostics, and test suites automatically.",
     )
+    if chosen_fw in FIRMWARE_PRESETS:
+        st.caption(f"💡 *{FIRMWARE_PRESETS[chosen_fw]['desc']}*")
 
     # Multi-Simulator Selector
     sim_options = {
@@ -397,11 +533,19 @@ with st.sidebar:
         "native_c": "Native C/C++ Host Runner (GCC/Clang)",
         "python_sim": "MicroPython / Embedded Python Runner",
     }
+    sim_keys = list(sim_options.keys())
+    current_stored_sim = st.session_state.get("simulator_engine_choice")
+    if current_stored_sim not in sim_keys:
+        def_sim = FIRMWARE_PRESETS.get(chosen_fw, {}).get("default_sim", "wokwi")
+        default_sim_idx = sim_keys.index(def_sim) if def_sim in sim_keys else 0
+    else:
+        default_sim_idx = sim_keys.index(current_stored_sim)
+
     selected_sim_id = st.selectbox(
         "Simulator Engine",
-        options=list(sim_options.keys()),
+        options=sim_keys,
         format_func=lambda x: sim_options[x],
-        index=0,
+        index=default_sim_idx,
         key="simulator_engine_choice",
         help="Choose simulator engine. Use 'Universal Virtual Hardware' for instant execution without Wokwi CLI.",
     )
@@ -452,7 +596,7 @@ with st.sidebar:
             st.error("Firmware source file not found.")
         else:
             try:
-                with st.spinner("Analyzing firmware & generating tests..."):
+                with st.spinner(f"Analyzing {FIRMWARE_DIR.name} & generating tests..."):
                     source_code = FIRMWARE_SRC_FILE.read_text(encoding="utf-8")
                     analysis = analyze_firmware(source_code)
                     tests = generate_tests(analysis, source_code, target_count=16)
@@ -465,9 +609,20 @@ with st.sidebar:
                         TestList(tests=tests).model_dump_json(indent=2),
                         encoding="utf-8",
                     )
+                    current_hash = hashlib.sha256(source_code.encode("utf-8")).hexdigest()
+                    (dev_dir / "firmware_hash.txt").write_text(current_hash, encoding="utf-8")
+                    (dev_dir / "firmware_source.txt").write_text(source_code, encoding="utf-8")
+                    lang = detect_firmware_language(FIRMWARE_SRC_FILE)
+                    save_firmware_cache(
+                        source_code=source_code,
+                        firmware_name=FIRMWARE_DIR.name,
+                        language=lang,
+                        analysis=analysis,
+                        tests=tests,
+                    )
                     st.session_state["active_run_id"] = "dev"
                     st.success(
-                        f"Generated {len(analysis.spec_rules)} rules & {len(tests)} tests!"
+                        f"Generated {len(analysis.spec_rules)} rules & {len(tests)} tests for `{FIRMWARE_DIR.name}`!"
                     )
                     time.sleep(1)
                     st.rerun()
@@ -503,8 +658,9 @@ def load_run_file(filename: str):
 # Main Header & 5 Tabs
 # ==========================================
 st.title("⚡ FirmAgent")
+fw_rel_src = FIRMWARE_SRC_FILE.relative_to(PROJECT_ROOT) if FIRMWARE_SRC_FILE.is_file() else f"firmware/{FIRMWARE_DIR.name}"
 st.caption(
-    f"Active Workspace: `{active_run_dir.name}` | Target: `firmware/fan_controller`"
+    f"Active Workspace: `{active_run_dir.name}` | Target: `{fw_rel_src}`"
 )
 
 if active_run_dir.name == "golden":
@@ -571,24 +727,112 @@ with tab_run:
         fw_col1, fw_col2 = st.columns([3, 2])
 
         with fw_col1:
-            uploaded_fw = st.file_uploader(
-                "Upload Custom Firmware Source (.cpp, .ino, .c, .py)",
-                type=["cpp", "ino", "c", "h", "py"],
-                key="fw_upload_file",
-                help="Upload a target firmware file. It will replace src/main.cpp with a backup saved to main.cpp.bak.",
+            st.markdown("**📂 Firmware Source: Quick-Load or Upload**")
+            up_mode = st.radio(
+                "Source Mode",
+                options=["📥 Load from Sample Library", "💻 Upload Local File from Disk"],
+                horizontal=True,
+                label_visibility="collapsed",
+                key="fw_source_mode_radio",
             )
-            if uploaded_fw is not None:
-                if st.session_state.get("last_uploaded_fw") != uploaded_fw.name:
-                    try:
-                        fw_content = uploaded_fw.getvalue().decode("utf-8", errors="replace")
-                        if FIRMWARE_SRC_FILE.is_file():
-                            bak_path = FIRMWARE_SRC_FILE.with_suffix(".cpp.bak")
-                            bak_path.write_text(FIRMWARE_SRC_FILE.read_text(encoding="utf-8"), encoding="utf-8")
-                        FIRMWARE_SRC_FILE.write_text(fw_content, encoding="utf-8")
-                        st.session_state["last_uploaded_fw"] = uploaded_fw.name
-                        st.success(f"✅ Uploaded `{uploaded_fw.name}` to `src/main.cpp` (backup saved to `main.cpp.bak`).")
-                    except Exception as up_exc:
-                        st.error(f"Failed to save uploaded firmware: {up_exc}")
+            if up_mode == "📥 Load from Sample Library":
+                local_samples = get_local_sample_firmwares()
+                sample_names = list(local_samples.keys())
+                sel_sample = st.selectbox(
+                    "Choose Pre-Packaged Sample Firmware",
+                    options=sample_names,
+                    format_func=lambda x: f"📄 {x}",
+                    key="sel_sample_preset_box",
+                    help="Select any sample firmware to immediately inject it into the active workspace.",
+                )
+                if st.button("📥 Load Sample into Active Workspace", use_container_width=True, key="load_sample_btn"):
+                    if sel_sample and sel_sample in local_samples:
+                        target_path = local_samples[sel_sample]
+                        fw_content = target_path.read_text(encoding="utf-8")
+                        det_lang = detect_firmware_language(target_path)
+
+                        ext = target_path.suffix or ".cpp"
+                        dest_file = FIRMWARE_DIR / "src" / ("main" + ext)
+                        if not dest_file.parent.is_dir():
+                            dest_file.parent.mkdir(parents=True, exist_ok=True)
+                        if dest_file.is_file():
+                            bak = dest_file.with_name(dest_file.name + ".bak")
+                            bak.write_text(dest_file.read_text(encoding="utf-8"), encoding="utf-8")
+                        dest_file.write_text(fw_content, encoding="utf-8")
+
+                        # Remove stale dev firmware_hash to force fresh analysis
+                        dev_dir = RUNS_DIR / "dev"
+                        if (dev_dir / "firmware_hash.txt").is_file():
+                            try:
+                                (dev_dir / "firmware_hash.txt").unlink()
+                            except Exception:
+                                pass
+
+                        # Auto-set simulator engine
+                        if det_lang == "python":
+                            st.session_state["simulator_engine_choice"] = "python_sim"
+                        elif det_lang == "c":
+                            st.session_state["simulator_engine_choice"] = "native_c"
+                        else:
+                            st.session_state["simulator_engine_choice"] = "virtual_mock"
+
+                        st.success(f"✅ Loaded `{sel_sample}` into `{FIRMWARE_DIR.name}`! Detected: `{det_lang.upper()}`. Simulator: `{st.session_state['simulator_engine_choice']}`.")
+                        time.sleep(0.5)
+                        st.rerun()
+
+            else:
+                st.caption("📁 Browse files on your computer. You can also pick from the local `sample_firmwares/` folder:")
+                uploaded_fw = st.file_uploader(
+                    "Upload Custom Firmware Source (.cpp, .ino, .c, .py)",
+                    type=["cpp", "ino", "c", "h", "py"],
+                    key="fw_upload_file",
+                    help="Upload a target firmware file. It will be loaded into the active firmware directory.",
+                )
+                if uploaded_fw is not None:
+                    if st.session_state.get("last_uploaded_fw") != uploaded_fw.name:
+                        try:
+                            fw_content = uploaded_fw.getvalue().decode("utf-8", errors="replace")
+                            ext = Path(uploaded_fw.name).suffix or ".cpp"
+                            dest_file = FIRMWARE_DIR / "src" / ("main" + ext)
+                            if not dest_file.parent.is_dir():
+                                dest_file.parent.mkdir(parents=True, exist_ok=True)
+                            if dest_file.is_file():
+                                bak_path = dest_file.with_name(dest_file.name + ".bak")
+                                bak_path.write_text(dest_file.read_text(encoding="utf-8"), encoding="utf-8")
+                            dest_file.write_text(fw_content, encoding="utf-8")
+
+                            # Detect language & configure simulator
+                            det_lang = detect_firmware_language(fw_content)
+                            if det_lang == "python":
+                                st.session_state["simulator_engine_choice"] = "python_sim"
+                            elif det_lang == "c":
+                                st.session_state["simulator_engine_choice"] = "native_c"
+                            else:
+                                st.session_state["simulator_engine_choice"] = "virtual_mock"
+
+                            dev_dir = RUNS_DIR / "dev"
+                            if (dev_dir / "firmware_hash.txt").is_file():
+                                try:
+                                    (dev_dir / "firmware_hash.txt").unlink()
+                                except Exception:
+                                    pass
+
+                            st.session_state["last_uploaded_fw"] = uploaded_fw.name
+                            st.success(f"✅ Uploaded `{uploaded_fw.name}`! Language: `{det_lang.upper()}`. Simulator: `{st.session_state['simulator_engine_choice']}`.")
+                            time.sleep(0.5)
+                            st.rerun()
+                        except Exception as up_exc:
+                            st.error(f"Failed to save uploaded firmware: {up_exc}")
+
+            # Undo / Restore Backup Button
+            bak_file = FIRMWARE_SRC_FILE.with_name(FIRMWARE_SRC_FILE.name + ".bak")
+            if bak_file.is_file():
+                if st.button(f"⏮️ Restore Previous Code ({bak_file.name})", key="restore_bak_btn", use_container_width=True):
+                    FIRMWARE_SRC_FILE.write_text(bak_file.read_text(encoding="utf-8"), encoding="utf-8")
+                    bak_file.unlink()
+                    st.success(f"Restored `{FIRMWARE_SRC_FILE.name}` from backup!")
+                    time.sleep(0.5)
+                    st.rerun()
 
         with fw_col2:
             st.markdown("**Syntax Diagnostics & Auto-Repair**")
@@ -632,9 +876,10 @@ with tab_run:
                     cause, hint = classify_error(syn_exc)
                     st.error(f"❌ Syntax repair failed: {cause}\n\n💡 *Hint:* {hint}")
 
-        with st.expander("📄 View Active Firmware Source (`firmware/fan_controller/src/main.cpp`)", expanded=False):
+        with st.expander(f"📄 View Active Firmware Source (`{fw_rel_src}`)", expanded=False):
             if FIRMWARE_SRC_FILE.is_file():
-                st.code(FIRMWARE_SRC_FILE.read_text(encoding="utf-8"), language="cpp")
+                syntax_lang = "python" if FIRMWARE_SRC_FILE.suffix == ".py" else ("c" if FIRMWARE_SRC_FILE.suffix == ".c" else "cpp")
+                st.code(FIRMWARE_SRC_FILE.read_text(encoding="utf-8"), language=syntax_lang)
             else:
                 st.caption("No firmware source file found.")
 
@@ -704,6 +949,8 @@ with tab_run:
                 "run_id": new_run_id,
                 "enable_followup": enable_followup_val,
                 "simulator_name": current_sim_id,
+                "firmware_dir": FIRMWARE_DIR,
+                "firmware_src_file": FIRMWARE_SRC_FILE,
             }
             st.session_state["pipeline_shared"] = shared_data
             st.session_state["pipeline_running"] = True

@@ -46,22 +46,53 @@ Analyze the compiler diagnostics and fix ALL syntax errors in the source code:
 """
 
 
+def find_firmware_src_file(firmware_dir: Path | str) -> Path:
+    """Locate the primary source file for a firmware directory."""
+    fw_dir = Path(firmware_dir).resolve()
+    candidates = [
+        fw_dir / "src" / "main.cpp",
+        fw_dir / "src" / "main.c",
+        fw_dir / "src" / "main.py",
+        fw_dir / "src" / "main.ino",
+        fw_dir / "main.cpp",
+        fw_dir / "main.c",
+        fw_dir / "main.py",
+        fw_dir / "main.ino",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+    return fw_dir / "src" / "main.cpp"
+
+
 def check_firmware_syntax(firmware_dir: Path | str) -> tuple[bool, str]:
-    """Compile firmware using PlatformIO to check for syntax and build errors.
+    """Compile or parse firmware to check for syntax and build errors.
 
     Returns:
         tuple[bool, str]: (is_clean, compiler_log_or_tail)
     """
     fw_dir = Path(firmware_dir).resolve()
+    src_file = find_firmware_src_file(fw_dir)
+
+    # If Python file, validate syntax with ast.parse
+    if src_file.suffix.lower() == ".py" and src_file.is_file():
+        try:
+            import ast
+            ast.parse(src_file.read_text(encoding="utf-8"), filename=str(src_file))
+            return True, "Python syntax is valid."
+        except SyntaxError as py_syn:
+            return False, f"SyntaxError in {src_file.name}:{py_syn.lineno}:{py_syn.offset}: {py_syn.msg}\n  {py_syn.text or ''}"
+
+    # For C/C++/Arduino: use build_firmware
     success, log_tail, _ = build_firmware(fw_dir)
     return success, log_tail
 
 
 def restore_firmware_backup(firmware_dir: Path | str) -> bool:
-    """Restore src/main.cpp from src/main.cpp.bak if backup exists."""
+    """Restore source file from backup if backup exists."""
     fw_dir = Path(firmware_dir).resolve()
-    src_file = fw_dir / "src" / "main.cpp"
-    bak_file = fw_dir / "src" / "main.cpp.bak"
+    src_file = find_firmware_src_file(fw_dir)
+    bak_file = src_file.with_name(src_file.name + ".bak")
     if bak_file.is_file():
         shutil.copy2(bak_file, src_file)
         return True
@@ -84,8 +115,8 @@ def auto_fix_syntax_errors(
         - error_log: Optional[str]
     """
     fw_dir = Path(firmware_dir).resolve()
-    src_file = fw_dir / "src" / "main.cpp"
-    bak_file = fw_dir / "src" / "main.cpp.bak"
+    src_file = find_firmware_src_file(fw_dir)
+    bak_file = src_file.with_name(src_file.name + ".bak")
 
     if not src_file.is_file():
         return {
