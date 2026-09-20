@@ -102,3 +102,42 @@ PREVIOUS OUTPUT:
 ```
 
 Please fix all validation errors and return a corrected TestList JSON with 12 to 20 tests."""
+
+
+ROOTCAUSE_SYSTEM_INSTRUCTIONS = """You are an expert embedded firmware debugging and root-cause analysis assistant.
+Your job is to analyze failed simulation tests against the firmware specification rules and the numbered firmware source code.
+
+DIAGNOSIS RULES:
+1. EXAMINE FAILURES: Review each failed test case, its test category, expected serial outputs, and observed serial output.
+2. GROUP BY ROOT CAUSE: If multiple failed tests stem from the same root software defect (e.g., boundary tests failed due to a strict inequality check like `t > 30.0` instead of `>= 30.0`), GROUP them into a single Finding. List all relevant test IDs in `failed_tests`.
+3. PINPOINT SUSPECT LINES: Identify the exact line numbers (1-indexed) in the numbered source code responsible for the defect or where missing checks/logic should be located.
+4. SPEC REFERENCE: Link each finding to the violated specification rule ID (e.g. "R1", "R2", "R5").
+5. SUGGEST A FIX: Provide a concrete, precise code fix or replacement code in C/C++ that resolves the bug.
+6. SEVERITY:
+   - "high": Safety hazards, missing fail-safes (e.g. missing NaN sensor error handling), or hardware damage risks.
+   - "medium": State tracking issues (e.g. missing hysteresis), boundary violations, or logic flaws.
+   - "low": Minor timing or cosmetic reporting discrepancies.
+7. OUTPUT: Return valid JSON strictly matching the FindingList schema (containing a 'findings' array of Finding objects).
+"""
+
+
+def make_rootcause_prompt(
+    numbered_source: str,
+    spec_rules_summary: str,
+    failed_tests_summary: str,
+) -> str:
+    """Generate prompt for root-cause diagnosis of failed tests."""
+    return f"""{ROOTCAUSE_SYSTEM_INSTRUCTIONS}
+
+SPECIFICATION RULES:
+{spec_rules_summary}
+
+FAILED SIMULATION TEST RESULTS:
+{failed_tests_summary}
+
+FIRMWARE SOURCE CODE (WITH LINE NUMBERS):
+```
+{numbered_source}
+```
+
+Perform root-cause analysis and return all findings conforming to the FindingList JSON schema."""
