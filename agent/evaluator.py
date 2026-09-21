@@ -4,7 +4,7 @@ import re
 from agent.models import TestCase, TestResult
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-FIRMWARE_PREFIXES = ("[INFO]", "[DATA]", "[ALARM]", "[ERROR]")
+FIRMWARE_PREFIXES = ("[INFO]", "[DATA]", "[ALARM]", "[ERROR]", "[EVENT]", "[WARN]", "[OK]")
 
 
 def strip_ansi(text: str) -> str:

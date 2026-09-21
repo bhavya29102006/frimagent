@@ -566,13 +566,18 @@ def run_autonomous_pipeline(run_id: str, shared_state: dict[str, Any], stop_even
             simulator_name=sim_name,
         )
         new_run_dir = RUNS_DIR / manifest.run_id
+        if (dev_dir / "firmware_source.txt").is_file():
+            try:
+                shutil.copy2(dev_dir / "firmware_source.txt", new_run_dir / "firmware_source.txt")
+            except Exception:
+                pass
 
         # 3. Root Cause Analysis (only if not stopped and has failures)
         if not stop_event.is_set() and manifest.status != "stopped" and manifest.failed > 0:
             shared_state["status"] = "4. Root Cause: Diagnosing bugs with Gemini..."
             shared_state["progress"] = 80
             try:
-                run_root_cause(run_dir=new_run_dir)
+                run_root_cause(run_dir=new_run_dir, firmware_source_path=fw_src)
             except Exception as rc_exc:
                 log_ui_error(manifest.run_id, "root_cause", rc_exc)
 
@@ -1765,10 +1770,16 @@ with tab_report:
             attempt_key = f"fix_attempt_{active_run_id}"
             current_attempt: Optional[FixAttempt] = st.session_state.get(attempt_key)
 
-            if current_attempt is None:
-                # Check if an attempt already exists on disk (e.g. golden replay or saved fix)
-                existing_att = load_fix_attempt(active_run_id, RUNS_DIR)
-                if existing_att:
+            # Check if an attempt exists or has been updated on disk
+            existing_att = load_fix_attempt(active_run_id, RUNS_DIR)
+            if existing_att:
+                if current_attempt is None:
+                    current_attempt = existing_att
+                    st.session_state[attempt_key] = existing_att
+                elif existing_att.attempt_id != current_attempt.attempt_id:
+                    current_attempt = existing_att
+                    st.session_state[attempt_key] = existing_att
+                elif existing_att.status in ("validated", "rejected", "applied") and current_attempt.status == "proposed":
                     current_attempt = existing_att
                     st.session_state[attempt_key] = existing_att
 
@@ -1917,7 +1928,10 @@ with tab_report:
                             current_attempt = verified_attempt
 
                             # Update report.md and report.html with before vs after section
-                            src_text = FIRMWARE_SRC_FILE.read_text(encoding="utf-8") if FIRMWARE_SRC_FILE.is_file() else ""
+                            src_path = active_run_dir / "firmware_source.txt"
+                            if not src_path.is_file():
+                                src_path = FIRMWARE_SRC_FILE
+                            src_text = src_path.read_text(encoding="utf-8") if src_path.is_file() else ""
                             diff_text = render_diff(src_text, verified_attempt.proposal)
                             update_reports_with_fix(active_run_id, verified_attempt, diff_text, RUNS_DIR)
 

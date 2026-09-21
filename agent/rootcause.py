@@ -217,8 +217,24 @@ def run_root_cause(
     source_candidates = [
         firmware_source_path,
         dir_path / "firmware_source.txt",
-        Path("firmware/fan_controller/src/main.cpp"),
+        dir_path.parent / "dev" / "firmware_source.txt",
     ]
+    manifest_p = dir_path / "manifest.json"
+    if manifest_p.is_file():
+        try:
+            m_data = json.loads(manifest_p.read_text(encoding="utf-8"))
+            fw_n = m_data.get("firmware_name")
+            if fw_n:
+                for cand_f in [
+                    Path("firmware") / fw_n / "src" / "main.cpp",
+                    Path("firmware") / fw_n / "src" / "main.c",
+                    Path("firmware") / fw_n / "src" / "main.py",
+                    Path("firmware") / fw_n / "main.py",
+                ]:
+                    source_candidates.append(cand_f)
+        except Exception:
+            pass
+
     source_code = ""
     for cand in source_candidates:
         if cand and Path(cand).is_file():

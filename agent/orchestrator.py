@@ -53,6 +53,16 @@ def run_all(
     if src_tests.is_file() and src_tests.resolve() != dest_tests.resolve():
         shutil.copy2(src_tests, dest_tests)
 
+    src_source = src / "firmware_source.txt"
+    dest_source = run_dir / "firmware_source.txt"
+    if src_source.is_file() and src_source.resolve() != dest_source.resolve():
+        shutil.copy2(src_source, dest_source)
+
+    src_hash = src / "firmware_hash.txt"
+    dest_hash = run_dir / "firmware_hash.txt"
+    if src_hash.is_file() and src_hash.resolve() != dest_hash.resolve():
+        shutil.copy2(src_hash, dest_hash)
+
     # 2. Load test cases
     target_tests_file = dest_tests if dest_tests.is_file() else src_tests
     if not target_tests_file.is_file():

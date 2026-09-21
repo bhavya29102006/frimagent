@@ -52,6 +52,16 @@ def prepare_fix_workspace(
         else:
             shutil.copy2(item, dest)
 
+    # Normalize newlines in all copied source files to prevent CRCRLF doubling
+    for ext in ("*.cpp", "*.c", "*.py", "*.ino", "*.h"):
+        for src_f in project_copy.rglob(ext):
+            try:
+                txt = src_f.read_text(encoding="utf-8", errors="ignore")
+                clean = txt.replace("\r\r\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
+                src_f.write_text(clean, encoding="utf-8", newline="\n")
+            except Exception:
+                pass
+
     return project_copy
 
 
@@ -115,7 +125,7 @@ def run_autofix(
         )
 
     source_code = (
-        source_file.read_text(encoding="utf-8")
+        source_file.read_text(encoding="utf-8").replace("\r\r\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
         if source_file.is_file()
         else ""
     )
