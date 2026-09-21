@@ -93,3 +93,16 @@ def test_build_firmware_handles_exception(tmp_path):
         assert ok is False
         assert artifacts == {}
         assert "pio not found" in log_tail
+
+
+def test_build_firmware_standalone_c(tmp_path):
+    """build_firmware succeeds for standalone C projects without platformio.ini."""
+    src_dir = tmp_path / "src"
+    src_dir.mkdir(parents=True)
+    c_file = src_dir / "main.c"
+    c_file.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+
+    ok, log, artifacts = build_firmware(tmp_path)
+    assert ok is True
+    assert "Native build passed" in log or "validated virtual C/C++" in log
+

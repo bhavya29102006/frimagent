@@ -16,8 +16,8 @@
  * HARDWARE
  *  DHT22 data on pin 2, fan (LED) on pin 13.
  */
-#include <Arduino.h>
-#include <DHT.h>
+include <Arduino.h>
+include <DHT.h>
 
 #define DHTPIN 2
 #define DHTTYPE DHT22

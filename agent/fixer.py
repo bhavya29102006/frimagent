@@ -73,6 +73,16 @@ def run_autofix(
     fix_dir = run_dir / "fix" / attempt_id
     fix_dir.mkdir(parents=True, exist_ok=True)
 
+    manifest_file = run_dir / "manifest.json"
+    if manifest_file.is_file():
+        try:
+            m_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+            fw_n = m_data.get("firmware_name")
+            if fw_n and (Path("firmware") / fw_n).is_dir():
+                firmware_dir = Path("firmware") / fw_n
+        except Exception:
+            pass
+
     # 1. Load run artifacts
     results_file = run_dir / "results.json"
     findings_file = run_dir / "findings.json"
@@ -201,7 +211,7 @@ def verify_fix(
     copy_dir = fix_dir / "project"
     run_dir = Path(runs_base_dir) / run_id
 
-    # Resolve simulator engine from parameter, manifest, or default to virtual_mock
+    # Resolve simulator engine from parameter, manifest, or infer from project files
     sim_name = simulator_name
     if not sim_name:
         manifest_file = run_dir / "manifest.json"
@@ -212,7 +222,18 @@ def verify_fix(
             except Exception:
                 pass
     if not sim_name:
-        sim_name = "virtual_mock"
+        # Detect simulator from project files
+        is_robot = (copy_dir / "model.sdf").is_file() or ((run_dir / "manifest.json").is_file() and "robot" in (run_dir / "manifest.json").read_text(encoding="utf-8"))
+        is_py = (any((copy_dir / "src").glob("*.py")) if (copy_dir / "src").is_dir() else False) or any(copy_dir.glob("*.py"))
+        is_c = (copy_dir / "src" / "main.c").is_file() or (any((copy_dir / "src").glob("*.c")) if (copy_dir / "src").is_dir() else False) or any(copy_dir.glob("*.c"))
+        if is_robot:
+            sim_name = "gazebo"
+        elif is_py:
+            sim_name = "python_sim"
+        elif is_c:
+            sim_name = "native_c"
+        else:
+            sim_name = "virtual_mock"
 
     # 1. Load baseline results
     results_file = run_dir / "results.json"

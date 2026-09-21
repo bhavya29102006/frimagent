@@ -1899,9 +1899,9 @@ with tab_report:
                         with st.status("🛠️ Verifying fix in sandbox copy...", expanded=True) as status_box:
                             def on_verify_step(step: str):
                                 if step == "build":
-                                    st.write("1. 🔨 Compiling sandbox project copy with PlatformIO...")
+                                    st.write("1. 🔨 Compiling sandbox project copy...")
                                 elif step == "retest_failed":
-                                    st.write("2. 🔄 Re-running failed tests in Wokwi simulator...")
+                                    st.write(f"2. 🔄 Re-running failed tests in sandbox simulator (`{current_sim_id}`)...")
                                 elif step == "regression_check":
                                     st.write("3. 🛡️ Running full regression check on previously passing tests...")
 
@@ -1911,6 +1911,7 @@ with tab_report:
                                 runs_base_dir=RUNS_DIR,
                                 stop_event=stop_evt,
                                 on_step=on_verify_step,
+                                simulator_name=current_sim_id,
                             )
                             st.session_state[attempt_key] = verified_attempt
                             current_attempt = verified_attempt

@@ -443,7 +443,7 @@ def apply_patch_to_copy(copy_dir: Path | str, proposal: PatchProposal) -> Path:
     if not orig_backup.is_file():
         shutil.copy2(target_file, orig_backup)
 
-    source = target_file.read_text(encoding="utf-8")
+    source = orig_backup.read_text(encoding="utf-8")
     patched = apply_hunks_to_source(source, proposal.hunks)
 
     # Atomic write

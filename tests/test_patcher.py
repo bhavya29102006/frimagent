@@ -316,6 +316,11 @@ def test_atomic_apply_to_copy_leaves_main_cpp_orig(tmp_path):
     updated_source = main_file.read_text(encoding="utf-8")
     assert "if (temp >= 30.0) {" in updated_source
 
+    # Call a second time to verify idempotency (does not duplicate hunks or corrupt source)
+    apply_patch_to_copy(tmp_path, proposal)
+    second_updated_source = main_file.read_text(encoding="utf-8")
+    assert second_updated_source == updated_source
+
 
 def test_atomic_apply_to_original_and_revert(tmp_path):
     """apply_to_original leaves main.cpp.bak and revert_original restores byte-for-byte."""
