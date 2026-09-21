@@ -69,17 +69,21 @@ def get_protected_ranges(source: str) -> list[tuple[int, int, str]]:
 def reconcile_hunks(source: str, hunks: list[PatchHunk]) -> list[PatchHunk]:
     """Reconcile and align hunk line bounds with the actual source text.
 
-    LLMs frequently miscalculate end_line by omitting blank lines or making an off-by-one
-    counting mistake. This function checks if original_code matches at or near the
-    proposed start_line (within +/- 3 lines), and updates start_line and end_line
-    to match the true source lines.
+    LLMs frequently miscalculate start_line/end_line by omitting blank lines,
+    making off-by-one counting mistakes, or referencing drifted lines.
+    This function robustly aligns original_code to the true source lines:
+    1. Direct match check at [start_line, end_line].
+    2. Local window search [start_line +/- 5].
+    3. Global exact block search across all source lines.
+    4. Substantive line sequence search (ignoring blank lines and whitespace differences).
     """
-    source_clean = source.replace("\r\n", "\n")
+    source_clean = source.replace("\r\r\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
     source_lines = source_clean.splitlines()
     total_lines = len(source_lines)
 
     for h in hunks:
-        orig_norm = "\n".join(h.original_code.replace("\r\n", "\n").splitlines())
+        orig_clean = h.original_code.replace("\r\r\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
+        orig_norm = "\n".join(orig_clean.splitlines())
         orig_lines = orig_norm.splitlines()
         num_orig = len(orig_lines)
         if num_orig == 0:
@@ -98,15 +102,57 @@ def reconcile_hunks(source: str, hunks: list[PatchHunk]) -> list[PatchHunk]:
                 h.end_line = h.start_line + num_orig - 1
                 continue
 
-        # 3. Check within +/- 3 lines window around start_line
-        min_start = max(1, h.start_line - 3)
-        max_start = min(total_lines - num_orig + 1, h.start_line + 3)
+        # 3. Check within +/- 5 lines window around start_line
+        min_start = max(1, h.start_line - 5)
+        max_start = min(total_lines - num_orig + 1, h.start_line + 5)
+        found_window = False
         for cand_start in range(min_start, max_start + 1):
             cand_slice = "\n".join(source_lines[cand_start - 1 : cand_start - 1 + num_orig])
             if cand_slice == orig_norm:
                 h.start_line = cand_start
                 h.end_line = cand_start + num_orig - 1
+                found_window = True
                 break
+        if found_window:
+            continue
+
+        # 4. Global exact block search across entire file
+        found_global = False
+        for cand_start in range(1, total_lines - num_orig + 2):
+            cand_slice = "\n".join(source_lines[cand_start - 1 : cand_start - 1 + num_orig])
+            if cand_slice == orig_norm:
+                h.start_line = cand_start
+                h.end_line = cand_start + num_orig - 1
+                found_global = True
+                break
+        if found_global:
+            continue
+
+        # 5. Substantive line sequence search (ignoring blank lines and whitespace differences)
+        core_orig = [l.strip() for l in orig_lines if l.strip()]
+        if core_orig:
+            for cand_start in range(1, total_lines + 1):
+                matched_count = 0
+                cand_end = cand_start
+                for idx in range(cand_start - 1, total_lines):
+                    line_s = source_lines[idx].strip()
+                    if not line_s:
+                        continue
+                    # Match exact stripped line or prefix
+                    if line_s == core_orig[matched_count] or (
+                        matched_count == len(core_orig) - 1 and (line_s.startswith(core_orig[matched_count]) or core_orig[matched_count].startswith(line_s))
+                    ):
+                        matched_count += 1
+                        cand_end = idx + 1
+                        if matched_count == len(core_orig):
+                            break
+                    else:
+                        break
+                if matched_count == len(core_orig):
+                    h.start_line = cand_start
+                    h.end_line = cand_end
+                    h.original_code = "\n".join(source_lines[cand_start - 1 : cand_end])
+                    break
 
     return hunks
 
@@ -759,7 +805,9 @@ def propose_patch(
         )
         if proposal and proposal.hunks:
             proposal.hunks = reconcile_hunks(source, proposal.hunks)
-            return proposal
+            val = validate_patch(source, proposal, findings)
+            if val.ok:
+                return proposal
     except Exception:
         pass
 

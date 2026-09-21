@@ -18,6 +18,7 @@ from agent.models import (
 )
 from agent.orchestrator import run_all
 from agent.patcher import (
+    _fallback_patch_proposal,
     apply_patch_to_copy,
     find_patch_target_file,
     propose_patch,
@@ -39,6 +40,8 @@ def prepare_fix_workspace(
     fw_path = Path(firmware_dir).resolve()
     fix_dir = Path(runs_base_dir) / run_id / "fix" / attempt_id
     project_copy = fix_dir / "project"
+    if project_copy.is_dir():
+        shutil.rmtree(project_copy, ignore_errors=True)
     project_copy.mkdir(parents=True, exist_ok=True)
 
     for item in fw_path.iterdir():
@@ -154,6 +157,20 @@ def run_autofix(
         project_copy_dir=copy_dir,
     )
 
+    # If proposal failed validation, automatically try fallback patch proposal so user is never blocked
+    if not validation.ok:
+        fallback_prop = _fallback_patch_proposal(source_code, findings, failed_res)
+        if fallback_prop and fallback_prop.hunks:
+            fallback_val = validate_patch(
+                source=source_code,
+                proposal=fallback_prop,
+                findings=findings,
+                project_copy_dir=copy_dir,
+            )
+            if fallback_val.ok:
+                proposal = fallback_prop
+                validation = fallback_val
+
     # 6. Render unified diff
     diff_text = render_diff(source_code, proposal)
 
@@ -210,6 +227,25 @@ def verify_fix(
     fix_dir = Path(runs_base_dir) / run_id / "fix" / attempt.attempt_id
     copy_dir = fix_dir / "project"
     run_dir = Path(runs_base_dir) / run_id
+
+    # Ensure sandbox project copy exists and has files; if not, prepare it now
+    if not copy_dir.is_dir() or not any(copy_dir.iterdir()):
+        fw_dir = Path("firmware/fan_controller")
+        manifest_file = run_dir / "manifest.json"
+        if manifest_file.is_file():
+            try:
+                m_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+                fw_n = m_data.get("firmware_name")
+                if fw_n and (Path("firmware") / fw_n).is_dir():
+                    fw_dir = Path("firmware") / fw_n
+            except Exception:
+                pass
+        prepare_fix_workspace(
+            run_id=run_id,
+            attempt_id=attempt.attempt_id,
+            firmware_dir=fw_dir,
+            runs_base_dir=runs_base_dir,
+        )
 
     # Resolve simulator engine from parameter, manifest, or infer from project files
     sim_name = simulator_name
