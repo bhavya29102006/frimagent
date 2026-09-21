@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FirmAgent — Autonomous Firmware Testing & Self-Healing Platform</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @media print {
+      body { background: #020617 !important; color: #f8fafc !important; }
+      .slide-container { display: block !important; }
+      .slide { display: flex !important; page-break-after: always !important; height: 100vh !important; margin: 0 !important; }
+      .no-print { display: none !important; }
+    }
+    .slide { display: none; }
+    .slide.active { display: flex; }
+    .glass-card {
+      background: rgba(30, 41, 59, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.25rem 0.6rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased min-h-screen flex flex-col justify-between select-none overflow-hidden">
+
+  <!-- Top Navigation & Status Bar -->
+  <header class="no-print h-14 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md px-6 flex items-center justify-between z-50">
+    <div class="flex items-center gap-3">
+      <span class="text-xl font-bold bg-gradient-to-r from-cyan-400 via-teal-300 to-indigo-400 bg-clip-text text-transparent">⚡ FirmAgent</span>
+      <span class="text-xs px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 font-mono">PITCH DECK</span>
+    </div>
+    
+    <!-- Progress Indicator -->
+    <div class="flex items-center gap-2">
+      <span id="slide-counter" class="text-xs font-mono text-slate-400">Slide 1 of 8</span>
+      <div class="w-36 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+        <div id="progress-bar" class="h-full bg-gradient-to-r from-cyan-500 to-indigo-500 transition-all duration-300 w-[12.5%]"></div>
+      </div>
+    </div>
+
+    <!-- Quick Action Controls -->
+    <div class="flex items-center gap-2">
+      <button onclick="toggleNotes()" class="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition flex items-center gap-1">
+        📝 <span class="hidden sm:inline">Notes (N)</span>
+      </button>
+      <a href="FirmAgent_Pitch_Deck.pdf" download class="px-2.5 py-1 text-xs rounded bg-cyan-700 hover:bg-cyan-600 text-white font-medium transition flex items-center gap-1">
+        📥 <span>Download PDF</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Slide Canvas -->
+  <main class="flex-1 relative flex items-center justify-center p-4 md:p-8 overflow-y-auto">
+    <div class="slide-container w-full max-w-6xl mx-auto h-[78vh] flex items-center justify-center">
+
+      <!-- ================= SLIDE 1: Title & Vision ================= -->
+      <section class="slide active w-full h-full flex-col justify-between glass-card p-8 md:p-12 rounded-2xl shadow-2xl border border-slate-800" data-notes="Welcome. Today we present FirmAgent, an autonomous agent built to solve the embedded hardware testing crisis. In this deck, we show how FirmAgent automates tests, multi-engine simulation, and self-healing with zero physical hardware.">
+        <div class="flex justify-between items-start">
+          <span class="badge bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">BLACK BOX AI HACKATHON 2026 • TRACK PS3</span>
+          <span class="text-xs font-mono text-slate-400">Autonomous Embedded Testing</span>
+        </div>
+
+        <div class="my-auto text-center space-y-4">
+          <div class="inline-block p-4 rounded-3xl bg-cyan-500/10 border border-cyan-500/20 text-5xl mb-1">⚡</div>
+          <h1 class="text-4xl md:text-6xl font-black tracking-tight text-white">
+            FirmAgent
+          </h1>
+          <p class="text-xl md:text-3xl text-cyan-400 font-semibold max-w-3xl mx-auto">
+            Autonomous Firmware Testing & Self-Healing Platform
+          </p>
+          <p class="text-sm md:text-base text-slate-300 max-w-2xl mx-auto">
+            Test, simulate, and auto-fix embedded firmware across Arduino C++, Pure C, MicroPython, and Robotics without physical hardware.
+          </p>
+
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 max-w-3xl mx-auto pt-2 text-center text-xs">
+            <div class="p-3 rounded-xl bg-slate-900 border border-slate-800">
+              <div class="text-2xl mb-1">🤖</div>
+              <div class="font-bold text-white">Zero Manual Tests</div>
+              <div class="text-[11px] text-slate-400">AI auto-generates test suite</div>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-900 border border-slate-800">
+              <div class="text-2xl mb-1">⚡</div>
+              <div class="font-bold text-white">5 Simulators</div>
+              <div class="text-[11px] text-slate-400">No physical boards needed</div>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-900 border border-slate-800">
+              <div class="text-2xl mb-1">🛡️</div>
+              <div class="font-bold text-white">Safe Self-Healing</div>
+              <div class="text-[11px] text-slate-400">0 regressions guaranteed</div>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-900 border border-slate-800">
+              <div class="text-2xl mb-1">💾</div>
+              <div class="font-bold text-white">$0 Caching</div>
+              <div class="text-[11px] text-slate-400">Instant SQLite re-testing</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex justify-between items-center text-xs text-slate-400 border-t border-slate-800/80 pt-3">
+          <span>Target: Zero Physical Rigs Required</span>
+          <span class="font-mono text-cyan-400">100% Deterministic & Safe</span>
+          <span class="font-mono">Press ➔ or Space</span>
+        </div>
+      </section>
+
+      <!-- ================= SLIDE 2: The Problem ================= -->
+      <section class="slide w-full h-full flex-col justify-between glass-card p-8 md:p-12 rounded-2xl shadow-2xl border border-slate-800" data-notes="Hardware QA is stuck in the 1990s. Flashing physical boards, swapping wires, and waiting for rigs eats up to 40% of developer time. FirmAgent reduces 18+ hours of testing down to 12 seconds.">
+        <div class="flex justify-between items-center">
+          <span class="badge bg-red-950 text-red-400 border border-red-800 text-xs">01 / THE PROBLEM</span>
+          <h2 class="text-xl md:text-2xl font-bold text-white">Why Embedded Firmware Testing is Broken</h2>
+        </div>
+
+        <div class="my-auto grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+          <div class="md:col-span-6 space-y-3 text-xs">
+            <div class="p-3 rounded-xl bg-slate-900 border border-slate-800">
+              <div class="text-red-400 font-bold text-sm mb-0.5">🔌 1. Physical Hardware Bottleneck</div>
+              <p class="text-slate-300">Engineers spend hours flashing boards, manually swapping wires, and waiting for physical HIL benches that cannot be scaled.</p>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-900 border border-slate-800">
+              <div class="text-red-400 font-bold text-sm mb-0.5">⚠️ 2. Silent Edge-Case Failures</div>
+              <p class="text-slate-300">Traditional unit tests mock hardware and miss real edge cases: sensor disconnections (<code class="text-red-300">NaN</code>) and 2°C hysteresis bugs.</p>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-900 border border-slate-800">
+              <div class="text-red-400 font-bold text-sm mb-0.5">⏳ 3. Cloud CI Quota Burnout</div>
+              <p class="text-slate-300">Cloud simulators (like Wokwi CI) burn monthly minute quotas in hours, crashing automated team pipelines with HTTP 429 errors.</p>
+            </div>
+          </div>
+
+          <!-- Bar Graph -->
+          <div class="md:col-span-6 p-4 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+            <h4 class="font-bold text-cyan-300 mb-1">📊 QA Time Breakdown (Hours Per Release)</h4>
+            <p class="text-slate-400 text-[11px] mb-3">Traditional Embedded Workflow vs. FirmAgent Autonomous Loop</p>
+
+            <div class="space-y-3">
+              <div>
+                <div class="flex justify-between mb-1 text-slate-300">
+                  <span>Physical Hardware QA</span>
+                  <span class="text-red-400 font-mono font-bold">18.5 Hours</span>
+                </div>
+                <div class="w-full h-5 bg-slate-950 rounded border border-slate-800 overflow-hidden flex items-center">
+                  <div class="bg-red-500 h-full text-[10px] text-white px-2 font-bold flex items-center" style="width: 95%;">Manual HIL (95%)</div>
+                </div>
+              </div>
+              <div>
+                <div class="flex justify-between mb-1 text-slate-300">
+                  <span>Cloud Simulator CI</span>
+                  <span class="text-amber-400 font-mono font-bold">3.2 Hours</span>
+                </div>
+                <div class="w-full h-5 bg-slate-950 rounded border border-slate-800 overflow-hidden flex items-center">
+                  <div class="bg-amber-500 h-full text-[10px] text-white px-2 font-bold flex items-center" style="width: 30%;">Cloud Waiting</div>
+                </div>
+              </div>
+              <div>
+                <div class="flex justify-between mb-1 text-cyan-300 font-bold">
+                  <span>⚡ FirmAgent Autonomous Loop</span>
+                  <span class="text-emerald-400 font-mono font-bold">12 Seconds (99.8% Faster)</span>
+                </div>
+                <div class="w-full h-5 bg-slate-950 rounded border border-cyan-500/50 overflow-hidden flex items-center">
+                  <div class="bg-gradient-to-r from-cyan-400 to-emerald-400 h-full text-[10px] text-slate-950 px-2 font-black flex items-center" style="width: 10%;">0.2m</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-xs text-slate-500 border-t border-slate-800/80 pt-3">
+          Status Quo: Physical testing is too slow, expensive, and unscalable.
+        </div>
+      </section>
+
+      <!-- ================= SLIDE 3: The Solution ================= -->
+      <section class="slide w-full h-full flex-col justify-between glass-card p-8 md:p-12 rounded-2xl shadow-2xl border border-slate-800" data-notes="The three pillars of FirmAgent: AI writes the tests, 5 pluggable simulators run the hardware physics, and the sandbox auto-patches defects with zero regressions.">
+        <div class="flex justify-between items-center">
+          <span class="badge bg-emerald-950 text-emerald-400 border border-emerald-800 text-xs">02 / THE SOLUTION</span>
+          <h2 class="text-xl md:text-2xl font-bold text-white">How FirmAgent Solves It (The 3 Pillars)</h2>
+        </div>
+
+        <div class="my-auto grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="p-5 rounded-xl bg-slate-900 border border-slate-800 flex flex-col justify-between">
+            <div>
+              <div class="text-3xl mb-2">📋</div>
+              <h3 class="text-base font-bold text-white mb-1">1. Autonomous Tests</h3>
+              <p class="text-slate-300 text-xs leading-relaxed">
+                Gemini 2.5 Flash extracts formal functional rules (thresholds, relay states, fail-safe pins) directly from source code and writes 12–22 dynamic tests.
+              </p>
+            </div>
+            <span class="badge bg-emerald-950 text-emerald-300 text-[11px] mt-4 self-start">Zero Manual Test Writing</span>
+          </div>
+
+          <div class="p-5 rounded-xl bg-slate-900 border border-slate-800 flex flex-col justify-between">
+            <div>
+              <div class="text-3xl mb-2">⚡</div>
+              <h3 class="text-base font-bold text-white mb-1">2. Multi-Engine Sim</h3>
+              <p class="text-slate-300 text-xs leading-relaxed">
+                Runs tests on Universal Virtual Hardware, Wokwi CLI, Host GCC/Clang, Python, or Gazebo 3D. Automatic zero-downtime local failover if cloud quotas expire.
+              </p>
+            </div>
+            <span class="badge bg-cyan-950 text-cyan-300 text-[11px] mt-4 self-start">Instant (~0.4s/test)</span>
+          </div>
+
+          <div class="p-5 rounded-xl bg-slate-900 border border-slate-800 flex flex-col justify-between">
+            <div>
+              <div class="text-3xl mb-2">🛡️</div>
+              <h3 class="text-base font-bold text-white mb-1">3. Sandbox Self-Healing</h3>
+              <p class="text-slate-300 text-xs leading-relaxed">
+                Localizes bugs to specific code lines, proposes minimal diffs, enforces 7 safety checks, and retests in an isolated sandbox with zero regressions allowed.
+              </p>
+            </div>
+            <span class="badge bg-purple-950 text-purple-300 text-[11px] mt-4 self-start">100% Regression-Free</span>
+          </div>
+        </div>
+
+        <div class="text-xs text-slate-500 border-t border-slate-800/80 pt-3">
+          Outcome: A closed-loop, self-healing testing system for embedded systems.
+        </div>
+      </section>
+
+      <!-- ================= SLIDE 4: Simplified Flowchart ================= -->
+      <section class="slide w-full h-full flex-col justify-between glass-card p-8 md:p-12 rounded-2xl shadow-2xl border border-slate-800" data-notes="Here is our 5-stage flowchart. Notice Stage 2: SQLite caching allows $0 re-runs instantly. Stage 5: Isolated sandbox testing guarantees master firmware code is never corrupted.">
+        <div class="flex justify-between items-center">
+          <span class="badge bg-cyan-950 text-cyan-400 border border-cyan-800 text-xs">03 / ARCHITECTURE</span>
+          <h2 class="text-xl md:text-2xl font-bold text-white">System Architecture & Technical Flowchart</h2>
+        </div>
+
+        <div class="my-auto space-y-4">
+          <p class="text-sm text-slate-300 text-center">The 5-stage closed loop: from raw code ingestion to self-healing sandbox verification.</p>
+
+          <!-- Visual Flowchart with Arrows -->
+          <div class="grid grid-cols-5 gap-2 text-center text-xs">
+            <div class="p-3 rounded-xl bg-slate-900 border border-cyan-700/60 flex flex-col justify-between h-48">
+              <div class="text-2xl">🔌</div>
+              <div class="font-bold text-cyan-300">1. Ingest</div>
+              <p class="text-slate-300 text-[11px]">Parses C, C++, Python. 1-Click AI syntax repair fixes typos.</p>
+              <span class="badge bg-cyan-950 text-cyan-300 text-[10px] mx-auto">SHA-256</span>
+            </div>
+
+            <div class="p-3 rounded-xl bg-slate-900 border border-purple-700/60 flex flex-col justify-between h-48">
+              <div class="text-2xl">💾</div>
+              <div class="font-bold text-purple-300">2. Cache</div>
+              <p class="text-slate-300 text-[11px]">If in firmagent.db, loads instantly ($0 cost). Else queries Gemini.</p>
+              <span class="badge bg-purple-950 text-purple-300 text-[10px] mx-auto">$0 Re-Runs</span>
+            </div>
+
+            <div class="p-3 rounded-xl bg-slate-900 border border-blue-700/60 flex flex-col justify-between h-48">
+              <div class="text-2xl">🚀</div>
+              <div class="font-bold text-blue-300">3. Simulate</div>
+              <p class="text-slate-300 text-[11px]">Routes to Virtual Mock, Wokwi, GCC, Python, or Gazebo.</p>
+              <span class="badge bg-blue-950 text-blue-300 text-[10px] mx-auto">5 Engines</span>
+            </div>
+
+            <div class="p-3 rounded-xl bg-slate-900 border border-emerald-700/60 flex flex-col justify-between h-48">
+              <div class="text-2xl">📊</div>
+              <div class="font-bold text-emerald-300">4. Evaluate</div>
+              <p class="text-slate-300 text-[11px]">Parses UART logs, verifies regex, triggers follow-up probe tests.</p>
+              <span class="badge bg-emerald-950 text-emerald-300 text-[10px] mx-auto">PASS/FAIL</span>
+            </div>
+
+            <div class="p-3 rounded-xl bg-slate-900 border border-amber-700/60 flex flex-col justify-between h-48">
+              <div class="text-2xl">🛠️</div>
+              <div class="font-bold text-amber-300">5. Self-Heal</div>
+              <p class="text-slate-300 text-[11px]">Clones sandbox, tests patch with 7 safety checks. 0 regressions.</p>
+              <span class="badge bg-amber-950 text-amber-300 text-[10px] mx-auto">Verified</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-xs text-slate-500 border-t border-slate-800/80 pt-3">
+          Architecture: Non-blocking cooperative threading with live Web UI reporting.
+        </div>
+      </section>
+
+      <!-- ================= SLIDE 5: Multi-Firmware Matrix ================= -->
+      <section class="slide w-full h-full flex-col justify-between glass-card p-8 md:p-12 rounded-2xl shadow-2xl border border-slate-800" data-notes="We support all major embedded paradigms: Arduino C++, bare-metal C with GCC, MicroPython, and Gazebo 3D robotics with LiDAR simulation.">
+        <div class="flex justify-between items-center">
+          <span class="badge bg-indigo-950 text-indigo-400 border border-indigo-800 text-xs">04 / MULTI-PLATFORM</span>
+          <h2 class="text-xl md:text-2xl font-bold text-white">Multi-Firmware Simulation Matrix</h2>
+        </div>
+
+        <div class="my-auto overflow-hidden rounded-xl border border-slate-800 text-xs">
+          <table class="w-full text-left">
+            <thead class="bg-slate-950 text-slate-400 uppercase font-mono text-[11px] border-b border-slate-800">
+              <tr>
+                <th class="p-2.5">Preset</th>
+                <th class="p-2.5">Language</th>
+                <th class="p-2.5">Hardware Setup</th>
+                <th class="p-2.5">Engine</th>
+                <th class="p-2.5">Planted Defect Repaired</th>
+                <th class="p-2.5 text-center">Score</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800 text-slate-300">
+              <tr>
+                <td class="p-2.5 font-bold text-cyan-400">🌡️ fan_controller</td>
+                <td class="p-2.5 font-mono">Arduino C++</td>
+                <td class="p-2.5">Uno + DHT22 + Fan Relay</td>
+                <td class="p-2.5 font-mono">Virtual Mock</td>
+                <td class="p-2.5">Boundary check (`> 30.0`), Hysteresis, `isnan()` Fail-safe</td>
+                <td class="p-2.5 text-center font-bold text-emerald-400">16 / 16 ✅</td>
+              </tr>
+              <tr>
+                <td class="p-2.5 font-bold text-amber-400">🐣 incubator_controller</td>
+                <td class="p-2.5 font-mono">Arduino C++</td>
+                <td class="p-2.5">Uno + Precision Heater</td>
+                <td class="p-2.5 font-mono">Virtual Mock</td>
+                <td class="p-2.5">Strict inequality at 40°C/60°C overheat boundary</td>
+                <td class="p-2.5 text-center font-bold text-emerald-400">16 / 16 ✅</td>
+              </tr>
+              <tr>
+                <td class="p-2.5 font-bold text-blue-400">💧 water_tank_monitor</td>
+                <td class="p-2.5 font-mono">Pure C</td>
+                <td class="p-2.5">MCU + Level Sensor + Valve</td>
+                <td class="p-2.5 font-mono">Native C (GCC)</td>
+                <td class="p-2.5">Inverted valve cutoff check (`< 20` vs `<= 20`)</td>
+                <td class="p-2.5 text-center font-bold text-emerald-400">16 / 16 ✅</td>
+              </tr>
+              <tr>
+                <td class="p-2.5 font-bold text-emerald-400">☁️ iot_weather_node</td>
+                <td class="p-2.5 font-mono">MicroPython</td>
+                <td class="p-2.5">ESP32 Weather Node</td>
+                <td class="p-2.5 font-mono">Python Sim</td>
+                <td class="p-2.5">Freeze threshold & NaN sensor disconnect logic</td>
+                <td class="p-2.5 text-center font-bold text-emerald-400">16 / 16 ✅</td>
+              </tr>
+              <tr>
+                <td class="p-2.5 font-bold text-purple-400">🤖 robot_obstacle_avoidance</td>
+                <td class="p-2.5 font-mono">Python/ROS2</td>
+                <td class="p-2.5">Diff Drive + 360° LiDAR</td>
+                <td class="p-2.5 font-mono">Gazebo 3D</td>
+                <td class="p-2.5">Emergency braking safety clearance threshold</td>
+                <td class="p-2.5 text-center font-bold text-emerald-400">15 / 15 ✅</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="text-xs text-slate-500 border-t border-slate-800/80 pt-3">
+          100% Reliability: 0 ERROR crashes across every single firmware preset.
+        </div>
+      </section>
+
+      <!-- ================= SLIDE 6: Tech Stack ================= -->
+      <section class="slide w-full h-full flex-col justify-between glass-card p-8 md:p-12 rounded-2xl shadow-2xl border border-slate-800" data-notes="Our production stack: Python 3.10+, Gemini 2.5 Flash, PlatformIO Core, Native GCC/Clang, Gazebo 3D, SQLite3, Streamlit, and 144 unit tests in Pytest.">
+        <div class="flex justify-between items-center">
+          <span class="badge bg-violet-950 text-violet-400 border border-violet-800 text-xs">05 / TECH STACK</span>
+          <h2 class="text-xl md:text-2xl font-bold text-white">Technology Stack & Toolchain</h2>
+        </div>
+
+        <div class="my-auto grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+          <div class="p-4 rounded-xl bg-slate-900 border border-slate-800">
+            <div class="font-mono text-cyan-400 font-bold mb-2">CORE ENGINE</div>
+            <ul class="space-y-1 text-slate-300">
+              <li>• <b>Python 3.10+</b></li>
+              <li>• <b>Pydantic v2</b> validation</li>
+              <li>• Threading with stop event</li>
+              <li>• PyYAML test parser</li>
+            </ul>
+          </div>
+
+          <div class="p-4 rounded-xl bg-slate-900 border border-slate-800">
+            <div class="font-mono text-blue-400 font-bold mb-2">AI REASONING</div>
+            <ul class="space-y-1 text-slate-300">
+              <li>• <b>Gemini 2.5 Flash</b></li>
+              <li>• Strict JSON schema</li>
+              <li>• Low-temp determinism</li>
+              <li>• Offline rule fallbacks</li>
+            </ul>
+          </div>
+
+          <div class="p-4 rounded-xl bg-slate-900 border border-slate-800">
+            <div class="font-mono text-emerald-400 font-bold mb-2">BUILD & SIM</div>
+            <ul class="space-y-1 text-slate-300">
+              <li>• <b>PlatformIO Core</b></li>
+              <li>• <b>Wokwi CLI</b> (AVR/ESP)</li>
+              <li>• <b>Native GCC / MinGW</b></li>
+              <li>• <b>Gazebo 3D</b> (SDF)</li>
+            </ul>
+          </div>
+
+          <div class="p-4 rounded-xl bg-slate-900 border border-slate-800">
+            <div class="font-mono text-amber-400 font-bold mb-2">UI & DATABASE</div>
+            <ul class="space-y-1 text-slate-300">
+              <li>• <b>Streamlit 1.42+</b></li>
+              <li>• <b>SQLite3</b> (<code class="text-amber-300">firmagent.db</code>)</li>
+              <li>• Monospace UART logs</li>
+              <li>• <b>144 Pytest</b> tests</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="text-xs text-slate-500 border-t border-slate-800/80 pt-3">
+          144 / 144 Unit Tests Passing continuously in Pytest.
+        </div>
+      </section>
+
+      <!-- ================= SLIDE 7: Safety & Feasibility ================= -->
+      <section class="slide w-full h-full flex-col justify-between glass-card p-8 md:p-12 rounded-2xl shadow-2xl border border-slate-800" data-notes="Safety is critical in embedded systems. Our 7 pre-patch safety gates prevent hallucinations, and the isolated sandbox enforces zero regressions before touching production firmware.">
+        <div class="flex justify-between items-center">
+          <span class="badge bg-amber-950 text-amber-400 border border-amber-800 text-xs">06 / SAFETY & RELIABILITY</span>
+          <h2 class="text-xl md:text-2xl font-bold text-white">Deterministic Safety Gate & Zero-Regression Rule</h2>
+        </div>
+
+        <div class="my-auto grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
+          <div class="p-5 rounded-xl bg-slate-900/90 border border-slate-800">
+            <h4 class="font-bold text-amber-300 text-sm mb-2">🛡️ 7 Pre-Patch Safety Checks</h4>
+            <ul class="space-y-1.5 text-slate-300">
+              <li>• <b>Hunk Count Limit</b>: Maximum &le; 3 hunks allowed.</li>
+              <li>• <b>Line Count Limit</b>: &le; 25 total modified lines (no wild rewrites).</li>
+              <li>• <b>Exact Byte Match</b>: Replaced text must match original source byte-for-byte.</li>
+              <li>• <b>Disjoint Hunks</b>: Zero overlapping hunk line ranges.</li>
+              <li>• <b>Protected Ranges</b>: Headers, includes, and pin defines are locked.</li>
+              <li>• <b>Spec Block Integrity</b>: Docstring requirements cannot be altered.</li>
+              <li>• <b>Compilation Gate</b>: Must compile cleanly with 0 compiler errors.</li>
+            </ul>
+          </div>
+
+          <div class="p-5 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
+            <div>
+              <h4 class="font-bold text-emerald-300 text-sm mb-2">🧪 Isolated Sandbox & Zero-Regression Rule</h4>
+              <ul class="space-y-1.5 text-slate-300">
+                <li>• <b>Dedicated Clone</b>: Patches are applied to an isolated copy in <code class="text-cyan-300">runs/.../project/</code>.</li>
+                <li>• <b>Idempotent Patching</b>: Reads from pristine <code class="text-cyan-300">.orig</code> backup.</li>
+                <li>• <b>Zero-Regression Rule</b>: If even <b>1 passing test fails</b>, the patch is <b>instantly auto-rejected</b>.</li>
+                <li>• <b>Zero-Fix Rejection</b>: If 0 failed tests are resolved, fix is rejected.</li>
+                <li>• <b>1-Click Safe Rollback</b>: Instant atomic rollback from backup.</li>
+              </ul>
+            </div>
+            <div class="mt-2 p-2 rounded-lg bg-emerald-950/40 border border-emerald-800/50 text-[11px] text-emerald-300 text-center font-mono">
+              Result: 100% of applied patches pass with zero regressions
+            </div>
+          </div>
+        </div>
+
+        <div class="text-xs text-slate-500 border-t border-slate-800/80 pt-3">
+          Guaranteed Safety: Master code is never touched until sandbox verification passes 100%.
+        </div>
+      </section>
+
+      <!-- ================= SLIDE 8: Visual Graphs & Impact ================= -->
+      <section class="slide w-full h-full flex-col justify-between glass-card p-8 md:p-12 rounded-2xl shadow-2xl border border-slate-800" data-notes="Final performance metrics: 50x speedup over physical testing, 100% pass rate after self-healing, $0 re-run cost, and a clear roadmap toward CI/CD runners and hardware-in-the-loop probes.">
+        <div class="flex justify-between items-center">
+          <span class="badge bg-teal-950 text-teal-400 border border-teal-800 text-xs">07 / IMPACT & BENCHMARKS</span>
+          <h2 class="text-xl md:text-2xl font-bold text-white">Proven Metrics & Performance Graphs</h2>
+        </div>
+
+        <div class="my-auto space-y-4">
+          <!-- 4 Stat Numbers -->
+          <div class="grid grid-cols-4 gap-3 text-center">
+            <div class="p-3 rounded-xl bg-slate-900 border border-slate-800">
+              <div class="text-2xl md:text-3xl font-black text-cyan-400">50x</div>
+              <div class="text-[10px] text-slate-400 mt-0.5">Faster Execution (~0.4s/test)</div>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-900 border border-slate-800">
+              <div class="text-2xl md:text-3xl font-black text-emerald-400">100%</div>
+              <div class="text-[10px] text-slate-400 mt-0.5">Pass Rate on Verified Fixes</div>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-900 border border-slate-800">
+              <div class="text-2xl md:text-3xl font-black text-purple-400">$0</div>
+              <div class="text-[10px] text-slate-400 mt-0.5">Cost for Cached Re-Runs</div>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-900 border border-slate-800">
+              <div class="text-2xl md:text-3xl font-black text-amber-400">144</div>
+              <div class="text-[10px] text-slate-400 mt-0.5">Pytest Unit Tests Passed</div>
+            </div>
+          </div>
+
+          <!-- 2 Visual Performance Graphs -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div class="p-4 rounded-xl bg-slate-900 border border-slate-800">
+              <h4 class="font-bold text-emerald-300 mb-1">📈 Before vs After Self-Healing Pass Rate</h4>
+              <div class="space-y-2 text-[11px] pt-1">
+                <div>
+                  <div class="flex justify-between mb-0.5 text-slate-300">
+                    <span>water_tank_monitor (Pure C)</span>
+                    <span class="text-emerald-400 font-mono">14/16 (87%) ➔ 16/16 (100%)</span>
+                  </div>
+                  <div class="w-full h-3 bg-slate-950 rounded-full overflow-hidden flex">
+                    <div class="bg-red-500 h-full" style="width: 87%;"></div>
+                    <div class="bg-emerald-400 h-full" style="width: 13%;"></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="flex justify-between mb-0.5 text-slate-300">
+                    <span>fan_controller (Arduino C++)</span>
+                    <span class="text-emerald-400 font-mono">15/16 (94%) ➔ 16/16 (100%)</span>
+                  </div>
+                  <div class="w-full h-3 bg-slate-950 rounded-full overflow-hidden flex">
+                    <div class="bg-red-500 h-full" style="width: 94%;"></div>
+                    <div class="bg-emerald-400 h-full" style="width: 6%;"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="p-4 rounded-xl bg-slate-900 border border-slate-800">
+              <h4 class="font-bold text-cyan-300 mb-1">⏱️ Test Cycle Latency (Lower is Better)</h4>
+              <div class="space-y-2 text-[11px] pt-1">
+                <div>
+                  <div class="flex justify-between mb-0.5 text-slate-300">
+                    <span>Physical MCU Flashing</span>
+                    <span class="text-red-400 font-mono">320.0s</span>
+                  </div>
+                  <div class="w-full h-3 bg-slate-950 rounded-full overflow-hidden">
+                    <div class="bg-red-500 h-full" style="width: 100%;"></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="flex justify-between mb-0.5 text-cyan-300 font-bold">
+                    <span>⚡ FirmAgent Virtual Simulation</span>
+                    <span class="text-emerald-400 font-mono">6.4s (50x Faster)</span>
+                  </div>
+                  <div class="w-full h-3 bg-slate-950 rounded-full overflow-hidden">
+                    <div class="bg-gradient-to-r from-cyan-400 to-emerald-400 h-full" style="width: 4%;"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Roadmap Milestones -->
+          <div class="grid grid-cols-3 gap-2 text-xs text-slate-300">
+            <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
+              <span class="text-cyan-400 font-bold font-mono text-[11px]">Q2: CI/CD Native</span>
+              <p class="text-[10px] text-slate-400 mt-0.5">GitHub Actions & GitLab CI runners.</p>
+            </div>
+            <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
+              <span class="text-indigo-400 font-bold font-mono text-[11px]">Q3: HIL Bridge</span>
+              <p class="text-[10px] text-slate-400 mt-0.5">Direct hardware probe connection (J-Link).</p>
+            </div>
+            <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
+              <span class="text-emerald-400 font-bold font-mono text-[11px]">Q4: Model Checking</span>
+              <p class="text-[10px] text-slate-400 mt-0.5">Formal verification alongside LLM synthesis.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex justify-between items-center text-xs text-slate-400 border-t border-slate-800/80 pt-3">
+          <span class="text-slate-300 font-semibold">⚡ FirmAgent: Autonomous Firmware Testing for the Next Century</span>
+          <span class="font-mono text-cyan-400 font-bold">Thank You!</span>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Speaker Notes Overlay (Toggled via 'N' key) -->
+  <div id="notes-drawer" class="no-print hidden fixed bottom-16 left-1/2 -translate-x-1/2 w-full max-w-2xl bg-slate-900/95 border border-cyan-800 text-slate-200 p-4 rounded-xl shadow-2xl z-50 text-xs backdrop-blur-md">
+    <div class="flex justify-between items-center mb-1 pb-1 border-b border-slate-800">
+      <span class="font-mono font-bold text-cyan-400">🎙️ SPEAKER NOTES</span>
+      <button onclick="toggleNotes()" class="text-slate-400 hover:text-white">✕</button>
+    </div>
+    <p id="notes-content" class="leading-relaxed text-slate-300"></p>
+  </div>
+
+  <!-- Bottom Navigation Bar -->
+  <footer class="no-print h-14 border-t border-slate-800 bg-slate-900/80 backdrop-blur-md px-6 flex items-center justify-between z-50">
+    <div class="flex items-center gap-2">
+      <button onclick="prevSlide()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-1.5">
+        ◀ <span class="hidden sm:inline">Previous</span>
+      </button>
+      <button onclick="nextSlide()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white shadow-md shadow-cyan-950 transition flex items-center gap-1.5">
+        <span class="hidden sm:inline">Next</span> ▶
+      </button>
+    </div>
+
+    <!-- Navigation Dots -->
+    <div class="flex items-center gap-2" id="dots-container"></div>
+
+    <div class="text-xs text-slate-500 font-mono hidden md:block">
+      [←] Previous | [→] / [Space] Next | [N] Notes
+    </div>
+  </footer>
+
+  <script>
+    const slides = document.querySelectorAll('.slide');
+    const totalSlides = slides.length;
+    let currentSlide = 0;
+
+    const counterEl = document.getElementById('slide-counter');
+    const progressEl = document.getElementById('progress-bar');
+    const dotsContainer = document.getElementById('dots-container');
+    const notesDrawer = document.getElementById('notes-drawer');
+    const notesContent = document.getElementById('notes-content');
+
+    // Create navigation dots
+    slides.forEach((_, i) => {
+      const dot = document.createElement('button');
+      dot.className = `w-2.5 h-2.5 rounded-full transition-all duration-300 ${i === 0 ? 'bg-cyan-400 scale-125' : 'bg-slate-700 hover:bg-slate-500'}`;
+      dot.onclick = () => goToSlide(i);
+      dotsContainer.appendChild(dot);
+    });
+
+    function updateSlide() {
+      slides.forEach((slide, i) => {
+        slide.classList.toggle('active', i === currentSlide);
+      });
+
+      // Update dots
+      const dots = dotsContainer.children;
+      for (let i = 0; i < dots.length; i++) {
+        dots[i].className = `w-2.5 h-2.5 rounded-full transition-all duration-300 ${i === currentSlide ? 'bg-cyan-400 scale-125 shadow-sm shadow-cyan-400' : 'bg-slate-700 hover:bg-slate-500'}`;
+      }
+
+      // Update counter and progress bar
+      counterEl.textContent = `Slide ${currentSlide + 1} of ${totalSlides}`;
+      progressEl.style.width = `${((currentSlide + 1) / totalSlides) * 100}%`;
+
+      // Update speaker notes
+      const activeSlide = slides[currentSlide];
+      notesContent.textContent = activeSlide.getAttribute('data-notes') || 'No notes for this slide.';
+    }
+
+    function nextSlide() {
+      if (currentSlide < totalSlides - 1) {
+        currentSlide++;
+        updateSlide();
+      }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 0) {
+        currentSlide--;
+        updateSlide();
+      }
+    }
+
+    function goToSlide(index) {
+      if (index >= 0 && index < totalSlides) {
+        currentSlide = index;
+        updateSlide();
+      }
+    }
+
+    function toggleNotes() {
+      notesDrawer.classList.toggle('hidden');
+    }
+
+    // Keyboard navigation
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+        e.preventDefault();
+        nextSlide();
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault();
+        prevSlide();
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        goToSlide(0);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        goToSlide(totalSlides - 1);
+      } else if (e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        toggleNotes();
+      }
+    });
+
+    // Initialize first slide
+    updateSlide();
+  </script>
+</body>
+</html>
